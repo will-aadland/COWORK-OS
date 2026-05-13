@@ -136,21 +136,25 @@ isMeeting: true        # inside ## Planner Metadata
 
 ## Meeting Details
 
-| Field      | Value                     |
-|------------|---------------------------|
-| Date       | 2026-04-21                |
-| Time       | 08:00 - 08:30             |
-| Location   | Arnold-114                |
-| Organizer  | misha.dyskin@promega.com  |
-| Importance | Normal                    |
-| MeetingId  | AAMkAGE2…                 |
-| LastSynced | 2026-04-21T13:14:26Z      |
+| Field      | Value                                                |
+|------------|------------------------------------------------------|
+| Date       | 2026-04-21                                           |
+| Time       | 08:00 - 08:30                                        |
+| Location   | Arnold-114                                           |
+| Organizer  | Misha Dyskin (misha.dyskin@promega.com)              |
+| Importance | Normal                                               |
+| MeetingId  | AAMkAGE2…                                            |
+| LastSynced | 2026-04-21T13:14:26Z                                 |
+| Recurrence | Weekly on Mon, Wed, Fri until 2026-12-31             |
+| Recording  | https://promega.sharepoint.com/.../recording.mp4     |
 
 ## Attendees
 
-| Email                     |
-|---------------------------|
-| claire.moll@promega.com   |
+| Email                     | Response  | Attended | Minutes |
+|---------------------------|-----------|----------|---------|
+| claire.moll@promega.com   | accepted  | yes      | 28      |
+| akim.nilausen@promega.com | tentative | no       | —       |
+| misha.dyskin@promega.com  | organizer | yes      | 30      |
 
 ## Agenda
 - Topic 1
@@ -159,16 +163,31 @@ isMeeting: true        # inside ## Planner Metadata
 (markdown summary written by Cowork)
 ```
 
-- Time format: `HH:MM - HH:MM` (24-hour, Central). All-day events: `All day`.
-- Organizer and Attendees are email-only by default (MCP returns email only).
-- **No `Recurrence` row.** The MCP doesn't reliably surface recurrence on individual instances.
+- **Time format** — `HH:MM - HH:MM` (24-hour, Central). All-day events: `All day`.
+- **Organizer** — `Name (email)` when the source provides a display name; email-only otherwise. Never fabricate a name.
+- **Recurrence** — conditional. Omit the row for single-instance meetings; write it for instances of a recurring series. Format is a short human phrase derived from the series master's `recurrence` block: `Daily`, `Weekly on Tuesday`, `Weekly on Mon, Wed, Fri`, `Every 2 weeks on Tuesday`, `Monthly on the 15th`, etc., optionally suffixed with `until YYYY-MM-DD` or `(N occurrences)` when the range is bounded.
+- **Recording** — conditional. Omit when no Teams recording exists for this occurrence. Value is the recording URL verbatim (no link text, no markdown wrapper — the planner UI handles rendering). Once written, leave it alone on subsequent syncs.
+- **No `Recurrence` row pre-v4** — older `CLAUDE.md` files have no Recurrence row, or in some cases an inaccurate one written by the old MCP (which returned `recurrence: null` on individual instances). On sync, recompute and write a fresh row when applicable; remove a legacy Recurrence row only if the new value would be empty.
+
+#### Attendees table columns
+
+| Column | Source | When `—` is correct |
+|---|---|---|
+| `Email` | Event attendee email (lowercased) | never — the row exists for an email |
+| `Response` | `attendee.status.response` mapped (`accepted` / `tentative` / `declined` / `—` / `organizer`) | only when the event hasn't been fetched yet (rare) |
+| `Attended` | `yes`/`no` from `attendance.totalAttendanceInSeconds > 0` | meeting hasn't fired, attendance not yet pulled, or 403 from `list-meeting-attendance-records` (caller isn't the organizer) |
+| `Minutes` | `round(attendance.totalAttendanceInSeconds / 60)` | same conditions as `Attended` |
+
+Older single-column tables (`| Email |` only) from pre-v4 sync runs should be upgraded in place on the next sync — rebuild with the four-column layout and fill what's known.
 
 ### 3.4 Safe-edit rules for meeting `CLAUDE.md`
 
-- `## Meeting Details` and `## Attendees` are markdown tables: preserve header + separator rows; rebuild only the body.
+- `## Meeting Details` is a markdown table: preserve header + separator rows; rebuild only the body. Rows are: Date, Time, Location, Organizer, Importance, MeetingId, LastSynced, Recurrence (conditional), Recording (conditional). Other custom rows the engineer adds pass through unchanged.
+- `## Attendees` is a markdown table with **four columns** (Email, Response, Attended, Minutes): preserve header + separator rows; rebuild body. When refreshing during a sync, merge incoming Response from the event with **existing Attended/Minutes** keyed by email — don't clobber attendance data that was already enriched in a prior post-meeting pull.
 - `## Transcript Summary` is free-form; safe to rewrite end-to-end.
 - `## Agenda` is a bullet list.
-- Don't write Recurrence rows. If an old file has one, remove it on next sync.
+- The Recurrence row is conditional — write it for instances of a recurring series; omit on single-instance meetings.
+- The Recording row is conditional — write only when a Teams recording exists. Once written, don't strip on subsequent syncs.
 
 ### 3.5 Meeting color hash
 

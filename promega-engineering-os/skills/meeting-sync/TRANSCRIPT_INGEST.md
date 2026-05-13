@@ -1,91 +1,85 @@
-# meeting-sync — Transcript Ingest Reference
+# meeting-sync — Post-meeting ingest (Softserve)
 
-Sub-reference loaded conditionally from `SKILL.md` Step 7 (transcript pull). If a sync run has no transcripts to pull (scheduled run with no last-workday meetings, or the engineer picks "Skip transcripts this run"), this file does not need to be loaded.
+Sub-reference loaded conditionally from `SKILL.md` Step 7 when meetings need post-meeting enrichment. Covers three related operations that all happen on the same trigger (after a meeting fires):
 
-For each meeting identified for transcript pull, work through T1–T8 in order. Stop early on `NOT_FOUND` or "no `meetingTranscriptUrl`" without erroring the whole sync.
+- **A. Transcript ingest** — primary purpose; T1–T8.
+- **B. Attendance enrichment** — only meaningful after the meeting fires; updates `## Attendees` columns.
+- **C. Recording link** — when a Teams recording exists; appends to `## Meeting Details`.
+
+All MCP calls below target the **Softserve MS365 connector** (`mcp__softserve__*` — Microsoft Graph). All are read-only and auto-allowed; no permission prompts. If Softserve isn't connected, skip the entire file and log "post-meeting enrichment skipped — Softserve not connected" in scheduled mode, or offer to connect it in interactive mode.
+
+Skip loading this file entirely when Step 7 has nothing queued (scheduled run found no last-workday meetings, or interactive run chose "Skip transcripts this run").
 
 ---
 
-## T1. Check for an existing transcript summary
+## Section A — Transcript ingest (T1–T8)
 
-Read the meeting's CLAUDE.md `## Transcript Summary` section. If it's already populated (not the placeholder `(no transcript yet)`):
+For each meeting queued for transcript pull, work through T1–T8 in order. Stop early on "no transcripts" or "not a Teams meeting" — don't fail the whole sync.
+
+### T1. Check for an existing transcript summary
+
+Read the meeting's `CLAUDE.md` `## Transcript Summary` section. If already populated (not the placeholder `(no transcript yet)`):
 
 - **Scheduled mode:** skip (don't overwrite).
 - **Interactive mode:** ask "Transcript already summarized for [meeting]. Re-pull and overwrite?" If no, skip.
 
-## T2. Get the transcript URL from the event
+### T2. Resolve the `onlineMeetingId`
 
-The transcript-fetching path in this MCP is **not obvious** — there is no dedicated transcript tool. Instead:
+The meeting's `CLAUDE.md` `## Meeting Details` table has a `MeetingId` row — that's the Outlook event ID, not the Teams online-meeting ID. They're different. Convert:
 
-1. Read the meeting's calendar event with `read_resource` and the URI `calendar:///events/{MeetingId}` (the `MeetingId` is in the meeting's `## Meeting Details` table — it's the `id` field from the original Outlook search).
-2. The response includes a field called **`meetingTranscriptUrl`** that is already pre-formatted as a `meeting-transcript:///events/<URL-encoded-joinWebUrl>` URI ready to pass back to `read_resource`. **Use this verbatim.** Do not try to construct it manually from the event body or `webLink` — those are not the same URL.
-3. If `meetingTranscriptUrl` is absent or empty, this isn't a Teams meeting (in-person, Zoom, or a calendar block). Skip with reason "no online meeting" — log in scheduled mode, tell the engineer in interactive mode.
-
-**Why not construct the URI manually?** The schema spec says `meeting-transcript:///events/{joinWebUrl}` but the parser is fragile — embedded `:` / `/` / `?` need URL-encoding, and the joinWebUrl in event bodies is sometimes the lite `meet/...` form vs. the full `meetup-join/...` form. Letting `meetingTranscriptUrl` give it to you pre-formatted avoids all of that.
-
-## T3. Fetch the transcript bundle
-
-Call `read_resource` with the `meetingTranscriptUrl` from T2.
-
-**Response shape on success** (verified):
-
-```json
-{
-  "meeting": {
-    "id": "...",
-    "subject": "ArC Scrum",
-    "startDateTime": "2026-04-20T13:00:00.000Z",
-    "endDateTime": "2026-04-20T13:30:00.000Z",
-    "joinWebUrl": "https://teams.microsoft.com/l/meetup-join/..."
-  },
-  "transcripts": [
-    { "id": "<base64>", "content": "WEBVTT\r\n\r\n00:00:10.539 --> ..." }
-  ]
-}
+```
+get-calendar-event(eventId=MeetingId)
+   → response.onlineMeeting.joinUrl       (or .joinWebUrl on some Graph versions)
 ```
 
-**Critical: `meeting.startDateTime` is the series origin**, not the specific occurrence. For a daily-recurring meeting like ArC Scrum, calling this for any instance returns the same `meeting` block referencing the very first occurrence. **Do not use it to identify which transcript belongs to today.**
+- If `onlineMeeting` is absent or `joinUrl` is empty/null → not a Teams meeting (in-person, Zoom, external). Skip with reason `no online meeting`.
 
-**Response can be huge** — a recurring meeting with N recorded occurrences accumulates N transcripts on the same join URL. The 4/27 ArC Scrum returned 6 transcripts totaling 176K characters. Fall back to the `jq + fromjson` pattern from SKILL.md Step 2.1 when the response overflows.
+Then convert the join URL to the canonical online-meeting ID:
 
-**Failure mode: `NOT_FOUND`.** When a meeting has `meetingTranscriptUrl` set but Teams has zero transcripts for the underlying URL:
-
-```json
-{"code": "NOT_FOUND", "message": "NOT_FOUND: No transcripts available for meeting: <id>"}
+```
+parse-teams-url(url=joinUrl)
+   → returns onlineMeetingId (and tenantId, chatId, etc.)
 ```
 
-This is the most common failure for one-off Teams meetings that weren't recorded. Log "no transcript available — meeting not recorded" and skip to the next meeting. **Do not** retry or error out the whole sync. Don't conflate this with "no `meetingTranscriptUrl` field" (T2 path) — that one means it isn't even a Teams meeting.
+`parse-teams-url` handles all the URL-encoding edge cases (lite `meet/...` vs full `meetup-join/...` form, percent-encoded chars). Don't construct the URI manually.
 
-## T4. Match the right transcript to the meeting occurrence
+### T3. List available transcripts
 
-Each transcript ID has a Unix timestamp embedded near the end. Decode it:
-
-```python
-import base64, re
-def extract_timestamp(transcript_id: str) -> int | None:
-    padded = transcript_id + '=' * (4 - len(transcript_id) % 4)
-    decoded = base64.urlsafe_b64decode(padded.replace('-', '+').replace('_', '/'))
-    printable = ''.join(chr(b) if 32 <= b < 127 else '.' for b in decoded)
-    m = re.search(r'(177\d{7})-TranscriptV2', printable)
-    return int(m.group(1)) if m else None
+```
+list-meeting-transcripts(onlineMeetingId)
+   → array of {id, createdDateTime, transcriptContentUrl, meetingOrganizer, ...}
 ```
 
-The timestamp is when transcription started — usually within ~2 minutes of the meeting's actual start.
+- **Empty array** → meeting wasn't recorded. Log "no transcript available — meeting not recorded" and skip to the next meeting. Don't retry; don't error the whole sync.
+- **Permission error** (403/404) → engineer doesn't have access (most common when they didn't organize and weren't a presenter). Log "no transcript access" and skip.
 
-**Matching logic:**
+### T4. Match the right transcript to this occurrence
 
-1. Get the meeting's true UTC start from CLAUDE.md (`Date` + `Time` converted from Central back to UTC) or from the calendar event from T2.
-2. For each transcript in the response, extract its embedded timestamp.
-3. Pick the one whose timestamp is closest to the meeting start, **within 15-minute tolerance**.
-4. If nothing falls within tolerance, the meeting wasn't recorded — log "no transcript for this date" and skip. **Do not pick the closest mismatched one.** Wrong day's transcript is worse than no transcript.
+Each transcript record carries a `createdDateTime` (UTC ISO-8601). Transcription starts within ~2 minutes of the meeting's actual start time.
 
-The `177xxxxxxx` regex matches Unix timestamps in the `1.77e9` range (Mar 2026 → Aug 2026). Generalize to `\d{10}` for other date ranges, but be aware other 10-digit numbers may be embedded in the ID.
+Matching:
 
-## T5. Save the raw transcript
+1. Get the meeting's true UTC start from its `CLAUDE.md` (`Date` + `Time`, Central → UTC).
+2. For each transcript in the response, compute `abs(transcript.createdDateTime - meeting_utc_start)`.
+3. Pick the transcript with the smallest delta **within 15-minute tolerance**.
+4. If nothing falls within tolerance → meeting wasn't recorded on this date. Log "no transcript for this date" and skip. **Do not pick the closest mismatched one** — wrong-day transcript is worse than no transcript.
 
-Write the cleaned transcript to `[meeting folder]/Transcripts/transcript.md`. Filename is `transcript.md` (not `YYYY-MM-DD [Title].vtt`) — the folder name already encodes date and title. One transcript per meeting folder.
+The base64 timestamp decoding from the old MCP path is gone. `createdDateTime` is authoritative.
 
-**WEBVTT → markdown conversion.** Raw content has cue blocks like:
+### T5. Fetch the transcript content
+
+```
+get-meeting-transcript-content(
+    onlineMeetingId=...,
+    transcriptId=<matched id from T4>,
+    format="text/vtt"
+)
+   → raw WEBVTT text
+```
+
+Save the converted markdown to `[meeting folder]/Transcripts/transcript.md`. One transcript per meeting folder; filename is `transcript.md` (date/title already encoded in the folder name).
+
+**WEBVTT → markdown.** Raw cue blocks:
 
 ```
 00:00:10.539 --> 00:00:13.259
@@ -104,16 +98,16 @@ Convert to:
 ```
 
 Rules:
-- Strip `WEBVTT` header.
-- Drop milliseconds (`HH:MM:SS.mmm` → `HH:MM:SS`).
-- Pull speaker from `<v Speaker>...</v>`. Speaker tags can wrap multiple lines — use a tolerant regex.
+- Strip the `WEBVTT` header.
+- Drop millisecond portion (`HH:MM:SS.mmm` → `HH:MM:SS`).
+- Pull speaker from `<v Speaker>...</v>`. Speaker tags can span lines — use a tolerant regex.
 - No speaker tag → label `(unknown)`.
 - One paragraph per cue, blank line between cues.
 - Duration = last cue's start time, rounded to nearest minute.
 
-## T6. Generate the summary
+### T6. Generate the summary
 
-300–600 words. Drop empty sections rather than leaving placeholder text. Recommended structure, in order:
+300–600 words. Drop empty sections rather than leaving placeholder text. Recommended structure:
 
 ```markdown
 ### Key Topics Discussed
@@ -135,19 +129,133 @@ Rules:
 - [open thread]
 ```
 
-The summary goes in the meeting's `## Transcript Summary` section in CLAUDE.md (T7), not a separate file. Don't fabricate — if there were no action items, drop the section entirely. Mark paraphrased quotes as paraphrased.
+The summary goes in the meeting's `## Transcript Summary` section (T7), not a separate file. Don't fabricate — if there were no action items, drop the section entirely. Mark paraphrased quotes as paraphrased.
 
 **Speaker disambiguation.** Room cameras (`Arnold-114`, `Arnold-115`) often capture multiple humans through one mic. Don't fabricate per-person attribution — note it: "*Speaker attribution is via the Arnold-114 room mic; multiple in-room speakers are combined.*"
 
-**Sensitive content.** Drop personal/private content (medical, family, off-topic) from Key Topics. Quote them only if directly relevant.
+**Sensitive content.** Drop personal/private content (medical, family, off-topic) from Key Topics. Quote only if directly relevant.
 
-## T7. Write the summary into CLAUDE.md
+### T7. Write the summary into `CLAUDE.md`
 
-Edit the meeting's CLAUDE.md to replace only the `## Transcript Summary` section body. Use Edit (not Write). Replace content between `## Transcript Summary` and the next heading (or end of file). Never touch other sections.
+Edit the meeting's `CLAUDE.md` to replace only the `## Transcript Summary` section body. Use Edit (not Write). Replace content between `## Transcript Summary` and the next heading (or EOF). Never touch other sections.
 
-## T8. Optional: surface action items as notes
+### T8. Optional: surface action items as notes
 
 - **Scheduled mode:** skip.
 - **Interactive mode:** if there are substantive action items (not just "Will to review next week"), ask: "Want me to drop the action items as separate notes in the meeting's `Notes/`?"
 
-If yes, create one note per action item (filename: `action-YYYY-MM-DD-{slug}.md`), or one combined `action-items.md` if there are >5 items.
+If yes, create one note per action item (filename `action-YYYY-MM-DD-{slug}.md`), or one combined `action-items.md` if there are >5 items.
+
+---
+
+## Section B — Attendance enrichment
+
+Fires for the same set of meetings as transcript pull (post-meeting window). Adds `Response`, `Attended`, `Minutes` columns to the meeting's `## Attendees` table.
+
+### B1. Pull response status from the event
+
+Already available from the `get-calendar-event` call in T2 — no extra request needed:
+
+```
+event.attendees[i].emailAddress.address     # the email
+event.attendees[i].status.response          # accepted | tentativelyAccepted | declined | none | organizer
+```
+
+Map response values to short labels for the table:
+- `accepted` → `accepted`
+- `tentativelyAccepted` → `tentative`
+- `declined` → `declined`
+- `none` → `—` (unanswered)
+- `organizer` → `organizer`
+
+### B2. Pull actual attendance data
+
+```
+list-meeting-attendance-reports(onlineMeetingId=...)
+   → array of reports {id, totalParticipantCount, meetingStartDateTime, meetingEndDateTime}
+```
+
+For recurring meetings, multiple reports exist (one per occurrence). Pick the report whose `meetingStartDateTime` matches the current occurrence's true UTC start within a 15-minute window (same tolerance as T4).
+
+If no reports come back → either the meeting didn't fire yet, didn't have attendance reporting enabled, or the engineer doesn't have organizer access. Skip attendance enrichment for this meeting; keep email + response status only.
+
+For the matched report:
+
+```
+list-meeting-attendance-records(onlineMeetingId=..., meetingAttendanceReportId=...)
+   → array of records {identity, totalAttendanceInSeconds, role, attendanceIntervals}
+```
+
+For each record, extract:
+- `identity.user.userPrincipalName` (or `emailAddress` fallback) — to match against the event's attendee list
+- `totalAttendanceInSeconds` → divide by 60, round → `Minutes` column value
+- `attended` = `totalAttendanceInSeconds > 0` → `yes` / `no`
+
+### B3. Permission fallback
+
+`list-meeting-attendance-records` typically requires the calling user to be the meeting organizer (or have `OnlineMeetings.ReadAll` app permission). For meetings the engineer attended but didn't organize, expect a 403.
+
+On 403: **don't error**. Skip attendance enrichment, keep the email + response status from B1 only. Log once per sync (not once per meeting) so the report doesn't spam.
+
+### B4. Write the enriched Attendees table
+
+Merge response (B1) + attendance (B2) data, keyed on email. Write back to the meeting's `CLAUDE.md` `## Attendees`:
+
+```markdown
+## Attendees
+
+| Email                     | Response  | Attended | Minutes |
+|---------------------------|-----------|----------|---------|
+| claire.moll@promega.com   | accepted  | yes      | 28      |
+| akim.nilausen@promega.com | tentative | no       | —       |
+| misha.dyskin@promega.com  | organizer | yes      | 30      |
+```
+
+Rules:
+- Response always populated when the event was fetched (B1 ran).
+- `Attended` and `Minutes` may be `—` if B2 returned no data (permission fallback) or for an attendee who isn't in the attendance report (e.g., dialed-in guests).
+- Email is the join key — preserve canonical lowercase form.
+- Use the Edit tool on the table body only. Preserve the header and separator rows. See `PLANNER_SCHEMA.md` § 3.3.
+
+---
+
+## Section C — Recording link
+
+When a Teams recording exists for the meeting, append a `Recording` row to `## Meeting Details` so the engineer can click straight from the planner UI.
+
+### C1. List recordings
+
+```
+list-meeting-recordings(onlineMeetingId=...)
+   → array of {id, createdDateTime, recordingContentUrl, meetingOrganizer}
+```
+
+For recurring meetings, multiple recordings exist (one per occurrence). Match by `createdDateTime` against this occurrence's UTC start within 15-minute tolerance (same as T4 / B2).
+
+If empty or no match → no recording for this occurrence. Skip (don't write a Recording row).
+
+### C2. Write the Recording row
+
+Update the meeting's `## Meeting Details` table to include:
+
+```markdown
+| Recording | https://promega.sharepoint.com/.../recording.mp4 |
+```
+
+The URL goes verbatim from `recording.recordingContentUrl`. Don't try to download the binary — the URL is what the engineer wants for one-click playback in Teams/SharePoint.
+
+**Placement in the table.** Append after `LastSynced` (last row). Use Edit, not Write — preserve header/separator and other rows.
+
+**Don't update on every sync.** If the row already exists with a non-empty URL, leave it. Only write when first detected.
+
+---
+
+## Skip-everything behavior
+
+If Softserve is unavailable mid-run (network blip, MCP disconnected), individual MCP calls return errors. Treat each call independently:
+
+- T2/T3 fail → skip transcript for that meeting; log; move on.
+- B2 fail (permission) → skip attendance; keep B1 response status.
+- C1 fail → skip recording; no row written.
+
+Never abort the whole sync because one MCP call to one meeting fails.
