@@ -22,7 +22,7 @@ version: 3.2.0
 
 Pulls Outlook calendar events via the Microsoft MCP connector and reconciles them with the engineer's workspace. Every run covers **Monday–Friday of the current workweek + Monday–Friday of next workweek**. Transcript behavior depends on mode.
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this skill.** It defines the meeting folder schema, em-dash naming rule, color hash algorithm, and CLAUDE.md tables.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this skill.** It defines the meeting folder schema, em-dash naming rule, `nameColor` hash algorithm (§ 3.5), and `CLAUDE.md` table layouts. For deeper context (UI behavior, architecture), `PLANNER_REFERENCE.md` is also at the plugin root but not loaded by this skill.
 
 ---
 
@@ -131,32 +131,21 @@ The MCP doesn't accept field selectors — it always returns the full event payl
 
 ### 2.1 Response size handling
 
-The MCP response can easily exceed the conversation token budget (74K+ chars for ~40 events is normal). If the tool call errors with "result exceeds maximum allowed tokens", **the result has been saved to a file** — find the path in the error message and process it with `jq` instead of inlining the JSON. Pattern:
+MCP responses can exceed the conversation budget (74K+ chars for ~40 events is normal). On "result exceeds maximum allowed tokens", the result is saved to a file — path is in the error message. Process with `jq`:
 
 ```bash
 FILE="<path from error message>"
-# Extract slim event listing for classification
+# Slim listing for classification (one line per event)
 jq -r '.[] | .text | fromjson | "\(.start[:10])T\(.start[11:16])  end=\(.end[11:16])  cancel=\(.isCancelled)  allDay=\(.isAllDay)  showAs=\(.showAs)  | \(.subject)"' "$FILE"
-
-# Extract one event's full payload
+# One event's full payload
 jq '.[N].text | fromjson' "$FILE"
 ```
 
-Use `.text | fromjson` because `text` is a stringified JSON value, not parsed JSON. This is the only reliable way to read a large response — never paste 70K+ chars back into your context.
+`.text` is a stringified JSON value, hence `| fromjson`. Never paste the raw 70K+ chars into context.
 
 ### 2.2 Pagination
 
-If the response has 50 events, you may have hit the limit. Re-call with `offset: 50`, then `offset: 100`, etc., until a call returns fewer than `limit` events. Combine all pages before proceeding to Step 3.
-
-**Pagination check still applies after the file-fallback overflow path.** When `read_resource` writes the response to disk because it's too big to inline, you still need to count the parsed events and check whether to paginate. A 50-event file means there might be more. Don't skip this check just because you read from disk:
-
-```python
-# After parsing file
-events = [json.loads(item["text"]) for item in raw]
-if len(events) >= 50:
-    # Still need offset=50, offset=100, etc.
-    raise Exception("paginate")
-```
+If a page returns exactly `limit` events (50), re-call with `offset: 50`, `100`, … until a page returns fewer. Pagination check applies even after the file-fallback path — a 50-event file means there may be more.
 
 ---
 
@@ -321,7 +310,7 @@ test -d "[Meetings mount]/YYYY-MM-DD — [Title]"
 mkdir -p "[folder]/Notes" "[folder]/Files" "[folder]/Transcripts"
 ```
 
-**Do not create `Chat Summaries/` here.** Meeting folders intentionally do not have a `Chat Summaries/` subfolder. The planner's UI does not surface a Chat Summaries sub-tab on meeting detail views, so any folder created with that name under a meeting is invisible to the planner. Cowork-generated meeting summaries belong in the meeting's `## Transcript Summary` section in `CLAUDE.md` (see Step T7 below). See `PLANNER_REFERENCE.md` Sections 4.3 and 8.4 for the schema rule.
+**Do not create `Chat Summaries/` here.** Meeting folders intentionally have no `Chat Summaries/` subfolder — the planner's UI ignores it under meetings. Cowork-generated meeting summaries go in the meeting's `## Transcript Summary` section in `CLAUDE.md` (see Step T7 in `TRANSCRIPT_INGEST.md`). See `PLANNER_SCHEMA.md` § 3.2 for the schema rule.
 
 ### 4.6 New meeting: write CLAUDE.md
 
@@ -371,102 +360,55 @@ links:
 (no transcript yet)
 ```
 
-**Format rules:**
-- `## Planner Metadata` header exact; one `field: value` per line; no blanks inside.
-- `isMeeting: true` is mandatory for meetings — that's the flag the planner uses.
-- `color` uses the deterministic hash from `PLANNER_REFERENCE.md` Section 3 so every instance of the same meeting matches.
-- `Date` row: Central time date, `YYYY-MM-DD`.
-- `Time` row format: `HH:MM - HH:MM` (24-hour, Central time). For all-day events, write `All day`.
-- `Organizer` row: just the email. The MCP returns email only — don't fabricate a display name. If you have a name from elsewhere (e.g., the attendees array maps email → name), you may write `Name (email)`, otherwise email-only is correct.
-- **No Recurrence row.** The MCP doesn't reliably return recurrence info on individual instances (`recurrence: null` is common even for true recurring meetings). Don't write a row that's usually wrong. If a future MCP version surfaces this reliably, add it back.
-- `MeetingId` = the Outlook event ID exactly (the `id` field from the response).
-- `LastSynced` = current UTC timestamp in ISO-8601.
-- Attendees table: one row per email. The MCP returns emails only — don't fabricate display names or response statuses. Preserve the `| Email |` / `|-------|` header rows even if the body is empty. If you have name lookups available from elsewhere (e.g., a separate directory), you may add a Name column, but never invent it.
+**Format rules.** Follow `PLANNER_SCHEMA.md` § 3 for the schema (em-dash, `isMeeting: true`, no Recurrence row, `nameColor` hash in § 3.5, table header preservation). Meeting-specific values from the MCP response:
+- `Date` — Central, `YYYY-MM-DD`. `Time` — `HH:MM - HH:MM` 24-hr, or `All day` for `isAllDay`.
+- `Organizer` — email only (MCP doesn't return display name). If a name lookup is available elsewhere, write `Name (email)`; never fabricate.
+- `MeetingId` — Outlook `id` field verbatim. `LastSynced` — current UTC ISO-8601.
+- Attendees table: one row per email; preserve `| Email |` / `|-------|` header even when body is empty.
 
-**Agenda parsing:**
-- Read the event's `summary` field (the body/description). Strip HTML (remove tags, decode entities, drop images/signatures/disclaimer blocks).
-- If the cleaned text looks like a bullet list (multiple lines starting with `-`, `*`, `•`, or numbered), convert to markdown bullets.
-- If it reads like prose, write as one or two paragraphs.
-- If `summary` is empty or just meeting-joining boilerplate (Teams links, phone numbers, "Microsoft Teams meeting" headers), omit the `## Agenda` section entirely.
-- If the body is enormous (>2000 chars of substance), truncate with `...and more in Outlook.` trailer.
-
-**nameColor computation** — run a quick `python3 -c` (see `PLANNER_REFERENCE.md` Section 3 for the formula, or the v1 version of this file in git history for a Python one-liner).
+**Agenda parsing.** Read the event's `summary` (body). Strip HTML (tags, entities, signature/disclaimer blocks). Bullet-shaped text → markdown bullets; prose → one or two paragraphs. Omit `## Agenda` entirely if `summary` is empty or just Teams-join boilerplate. Truncate >2000 chars of substance with `...and more in Outlook.`
 
 ### 4.7 Update path (folder already exists)
 
-- Read existing CLAUDE.md.
-- **Preserve verbatim:**
-  - Title line (`# ...`)
-  - Description paragraph
-  - `status`, `priority`, `stress`, `progress` values in `## Planner Metadata`
-  - Any custom sections the engineer added (e.g., `## Notes`, `## Decision Log`, `## Recent Summaries`)
-  - `## Transcript Summary` body if already populated (non-placeholder)
-- **Replace:**
-  - `LastSynced` row in `## Meeting Details`
-  - The full `## Meeting Details` table body (date/time/location/etc. may have changed). Don't add a Recurrence row even if old CLAUDE.md files have one — the field has been retired. If the old file has a Recurrence row, remove it during the update.
-  - The full `## Attendees` table body (attendance changes often)
-  - `## Agenda` section content (`summary` may have been edited in Outlook)
+Use Edit, section by section (never full rewrite).
 
-Use the Edit tool section by section, not a full rewrite — Edit is safer against partial failures.
+**Preserve verbatim:** title line, description paragraph, `status`/`priority`/`stress`/`progress` in `## Planner Metadata`, any custom sections (`## Notes`, `## Decision Log`, `## Recent Summaries`), and `## Transcript Summary` body if already populated.
 
-Don't change `color`, `isMeeting`, or `MeetingId` on update — those are stable across syncs.
+**Replace:** `## Meeting Details` body (rebuild full table; remove any legacy Recurrence row), `## Attendees` body, `## Agenda` body. `color`, `isMeeting`, `MeetingId` are stable — don't change them.
 
 ### 4.8 Reconciliation pass (every-meeting guarantee)
 
-After Steps 4.1–4.7 finish for every regular event, run a reconciliation pass to **verify every expected folder exists and every existing folder corresponds to a known event**. This is the only way to guarantee no silent miss.
+After 4.1–4.7 finish for every regular event, verify every expected folder exists and every existing folder corresponds to a known event:
 
 ```python
-# Build expected set from classified events
-expected = set()
-for event in regular_events:  # post-classification, post-sanitization
-    folder = build_folder_name(get_central_date(event), strip_canceled_prefix(event["subject"]))
-    expected.add(folder)
-
-# Build actual set from filesystem (only folders whose date prefix is in the window)
-actual = set()
-for entry in meetings_root.iterdir():
-    date_prefix = entry.name[:10]
-    if entry.is_dir() and date_prefix in window_dates:
-        actual.add(entry.name)
-
+expected = {build_folder_name(get_central_date(e), strip_canceled_prefix(e["subject"]))
+            for e in regular_events}
+actual = {entry.name for entry in meetings_root.iterdir()
+          if entry.is_dir() and entry.name[:10] in window_dates}
 missing = expected - actual
 extra   = actual - expected
-
-# Subtract folders that match cancelled events (those should have been deleted in Step 6,
-# but if Step 6 was skipped or the cancelled-folder lookup missed them, they show up here):
+# Subtract folders that match cancelled events (Step 6 should have deleted them)
 extra -= {build_folder_name(get_central_date(e), strip_canceled_prefix(e["subject"]))
           for e in cancelled_events}
 ```
 
-**For each `missing` folder**: this is a real gap — the classification logic dropped a regular event. Surface in Step 8 as a warning ("Expected to scaffold X — got skipped"). Investigate root cause (likely a classification bug or a `mkdir`/permission failure).
+**`missing`** = classification dropped a regular event. Surface in Step 8 as a warning ("Expected to scaffold X — got skipped"). Likely a classification bug or a `mkdir`/permission failure.
 
-**For each `extra` folder**: the folder exists but no event in the window justifies it. Most often this means:
-- The event was cancelled and Step 6 missed it (Step 3a's `Canceled: ` prefix bug — see fix in 3a)
-- The event was deleted from Outlook entirely (not just cancelled — actually removed)
-- The folder was created manually by the engineer
-- A previous sync used a different sanitization rule (Step 4.3.5 should have caught it; if it didn't, normalization is incomplete)
+**`extra`** = folder exists, no event justifies it. Causes: cancelled-with-`Canceled:`-prefix lookup miss (3a bug), event deleted from Outlook entirely, manually created by engineer, or unmerged legacy sanitization variant (4.3.5 should have caught it).
 
-**Before classifying any extra as "safe to delete"**, do a deep content check — not just `ls`. A folder may look empty at a glance but contain `Notes/notes.md`, `context.md`, `context.md.bak`, `description.md.bak`, or other files that aren't in the standard scaffolding. The check:
+Before treating any extra as deletable, do a deep content check (not just `ls`) — folders may have `Notes/notes.md`, `context.md`, or `*.bak` files:
 
 ```python
 def folder_has_content(p: Path) -> bool:
-    """True if the folder contains anything beyond the empty scaffolding."""
     for sub in ["Notes", "Files", "Transcripts"]:
         d = p / sub
         if d.exists() and any(d.iterdir()):
             return True
-    # Check for top-level non-scaffolding files
-    for f in p.iterdir():
-        if f.is_file() and f.name not in ("CLAUDE.md",):
-            return True
-    return False
+    return any(f.is_file() and f.name != "CLAUDE.md" for f in p.iterdir())
 ```
 
-In **interactive mode**, surface each `extra` folder as a question: "Folder X has no matching calendar event. It contains {summary of content}. Delete, mark stale, or keep?" Always include the content summary so the engineer makes an informed call.
-
-In **scheduled mode**, **never auto-delete extras** — even if `folder_has_content` returns false. Empty-looking folders sometimes have content that didn't surface in a quick check. Just log them in the report and let the engineer review interactively.
-
-Reconciliation is what makes "every scan checks all meetings, no duplicates, no missing" a hard guarantee instead of an aspiration.
+**Interactive mode**: ask per folder — "Folder X has no matching event; contains {summary}. Delete, mark stale, or keep?"
+**Scheduled mode**: **never auto-delete extras** even when `folder_has_content` is false. Log and let the engineer review later.
 
 ---
 
@@ -597,167 +539,9 @@ Based on their answer:
 
 ## Transcript ingest (called from Step 7)
 
-For each meeting identified for transcript pull:
+For every meeting queued for transcript pull, follow steps T1–T8 in `TRANSCRIPT_INGEST.md` (sibling file). Steps cover existing-summary check (T1), transcript URL lookup via `meetingTranscriptUrl` (T2), bundle fetch and `NOT_FOUND` handling (T3), occurrence matching by embedded timestamp with 15-min tolerance (T4), WEBVTT → markdown raw save (T5), 300–600-word summary generation (T6), `## Transcript Summary` write via Edit (T7), and optional action-item notes in interactive mode (T8). Stop at the first hard failure for a given meeting and move to the next.
 
-### T1. Check for an existing transcript summary
-
-Read the meeting's CLAUDE.md `## Transcript Summary` section. If it's already populated (not the placeholder `(no transcript yet)`):
-- Scheduled mode: skip (don't overwrite).
-- Interactive mode: ask "Transcript already summarized for [meeting]. Re-pull and overwrite?" If no, skip.
-
-### T2. Get the transcript URL from the event
-
-The transcript-fetching path in this MCP is **not obvious** — there is no dedicated transcript tool. Instead:
-
-1. Read the meeting's calendar event with `read_resource` and the URI `calendar:///events/{MeetingId}` (the MeetingId is in the meeting's CLAUDE.md `## Meeting Details` table — the `id` field from the original Outlook search).
-2. The response includes a field called **`meetingTranscriptUrl`** that is already pre-formatted as a `meeting-transcript:///events/<URL-encoded-joinWebUrl>` URI ready to pass back to `read_resource`. **Use this verbatim.** Do not try to construct it manually from the event body or the `webLink` field — those are not the same URL.
-3. If `meetingTranscriptUrl` is absent or empty, this isn't a Teams meeting (e.g., in-person, Zoom, or a calendar block). Skip with reason "no online meeting" — log in scheduled mode, tell the engineer in interactive mode.
-
-**Why not just construct the URI ourselves?** The schema spec says `meeting-transcript:///events/{joinWebUrl}` but the parser is fragile — embedded `:` and `/` and `?` need URL-encoding, and the joinWebUrl in the event body is sometimes the lite `meet/...` form vs. the full `meetup-join/...` form. Letting `meetingTranscriptUrl` give it to you pre-formatted avoids all of that.
-
-### T3. Fetch the transcript bundle
-
-Call `read_resource` with the `meetingTranscriptUrl` from T2.
-
-**Response shape on success** (verified):
-```json
-{
-  "meeting": {
-    "id": "...",
-    "subject": "ArC Scrum",
-    "startDateTime": "2026-04-20T13:00:00.000Z",   // SERIES ORIGIN — NOT this occurrence
-    "endDateTime": "2026-04-20T13:30:00.000Z",
-    "joinWebUrl": "https://teams.microsoft.com/l/meetup-join/..."
-  },
-  "transcripts": [
-    { "id": "<base64>", "content": "WEBVTT\r\n\r\n00:00:10.539 --> ..." },
-    ...
-  ]
-}
-```
-
-**Critical: `meeting.startDateTime` is the series origin date**, not the specific occurrence. For a daily-recurring meeting like ArC Scrum, calling this for any instance returns the same `meeting` block referencing the very first occurrence of the series. **Do not use it to identify which transcript belongs to today.**
-
-**Response can be huge** — a recurring meeting with N recorded occurrences accumulates N transcripts on the same join URL. The 4/27 ArC Scrum returned 6 transcripts totaling 176K characters. Fall back to the `jq + fromjson` pattern from Step 2.1 when the response overflows.
-
-**Failure mode: `NOT_FOUND` error.** When a meeting has `meetingTranscriptUrl` set (so it IS a Teams meeting) but Teams has zero transcripts for the underlying meeting URL, `read_resource` returns:
-
-```json
-{
-  "code": "NOT_FOUND",
-  "message": "NOT_FOUND: No transcripts available for meeting: <internal id>"
-}
-```
-
-This is the most common failure case for one-off Teams meetings that weren't recorded. Handle it cleanly:
-- Log "no transcript available — meeting not recorded" in the final report.
-- Skip to the next meeting; do not retry, do not error out the whole sync.
-- Don't conflate this with "no `meetingTranscriptUrl` field" (T2 path) — that means it isn't even a Teams meeting. The two failures should produce different reasons in the report.
-
-### T4. Match the right transcript to the meeting occurrence
-
-Each transcript ID has a Unix timestamp embedded near the end. Decode the ID and find the timestamp:
-
-```python
-import base64, re
-def extract_timestamp(transcript_id: str) -> int | None:
-    padded = transcript_id + '=' * (4 - len(transcript_id) % 4)
-    decoded = base64.urlsafe_b64decode(padded.replace('-', '+').replace('_', '/'))
-    printable = ''.join(chr(b) if 32 <= b < 127 else '.' for b in decoded)
-    m = re.search(r'(177\d{7})-TranscriptV2', printable)
-    return int(m.group(1)) if m else None
-```
-
-The timestamp is when transcription started — usually within ~2 minutes of the meeting's actual start time.
-
-**Matching logic:**
-1. Get the meeting's true UTC start from CLAUDE.md (`Date` + `Time` rows, converted from Central back to UTC) — or from the calendar event you fetched in T2.
-2. For each transcript in the response, extract its embedded timestamp.
-3. Pick the one whose timestamp is closest to the meeting start, **within a 15-minute tolerance**.
-4. If no transcript falls within tolerance, the meeting wasn't recorded — log "no transcript for this date" and skip. **Do not pick the closest mismatched one.** Picking the wrong day's transcript is worse than picking none.
-
-The `177xxxxxxx` regex only matches Unix timestamps in the `1.77e9` range (March 2026 → Aug 2026). Generalize to `\d{10}` if running across other date ranges, but be aware that other 10-digit numbers may be embedded in the ID.
-
-### T5. Save the raw transcript
-
-Write the cleaned transcript to:
-```
-[meeting folder]/Transcripts/transcript.md
-```
-
-Filename is `transcript.md` (not `YYYY-MM-DD [Title].vtt`). The folder name already encodes the date and title — duplicating it in the filename is redundant. One transcript per meeting folder.
-
-**Format conversion (WEBVTT → markdown):**
-
-The raw content is WEBVTT with cue blocks like:
-```
-00:00:10.539 --> 00:00:13.259
-<v Arnold-114>Um, it was really busy. It was like, I...</v>
-```
-
-Convert to readable markdown:
-```markdown
-# [Meeting Title] — Transcript
-**Date:** YYYY-MM-DD | **Duration:** ~N min
-
----
-
-**[00:00:10]** **Arnold-114:** Um, it was really busy. It was like, I...
-
-**[00:00:16]** **Arnold-114:** I want you.
-```
-
-Rules:
-- Strip the `WEBVTT` header.
-- Drop the millisecond portion of timestamps (`HH:MM:SS.mmm` → `HH:MM:SS`).
-- Pull speaker name from the `<v Speaker>...</v>` tag. Speaker tags can wrap multiple lines — use a tolerant regex.
-- If a cue has no speaker tag, label it `(unknown)`.
-- One paragraph per cue, blank line between cues.
-- Compute duration from the last cue's start time (rounded to nearest minute).
-
-### T6. Generate the summary
-
-300–600 words. Use a flexible structure — drop any section that's empty rather than leaving placeholder text. The recommended sections, in order:
-
-```markdown
-### Key Topics Discussed
-- [topic 1 — brief summary]
-- [topic 2 — brief summary]
-
-### Decisions Made
-- [decision 1]
-
-### Action Items
-- [ ] [Who] — [what] — [by when if mentioned]
-
-### Attendee Contributions
-**[Name] ([role/affiliation if relevant]):** [what they contributed in this meeting]
-
-### Key Quotes
-> "[quote worth keeping]" — [Speaker]
-
-### Follow-ups / Open Questions
-- [open thread]
-```
-
-The summary goes in the meeting's `## Transcript Summary` section in CLAUDE.md, not as a separate file. Don't fabricate content — if there were no action items, drop the section entirely; don't write "No action items recorded." If a quote is paraphrased, mark it as such.
-
-**Speaker disambiguation.** Room cameras (`Arnold-114`, `Arnold-115`, etc.) often capture multiple humans talking through one mic. Transcripts attribute everything from the room to the room name. Don't fabricate per-person attribution from a room mic — note it: "*Speaker attribution is via the Arnold-114 room mic; multiple in-room speakers are combined.*"
-
-**Sensitive content.** If the transcript includes personal/private content (medical, family, off-topic, etc.) that shouldn't surface in a work summary, drop those sections from the Key Topics. Quote them only if directly relevant to a work topic.
-
-### T7. Write the summary into CLAUDE.md
-
-Edit the meeting's CLAUDE.md to replace the `## Transcript Summary` section body. Use the Edit tool, not Write. Replace only the content between `## Transcript Summary` and the next heading (or end of file). Never touch other sections.
-
-### T8. Optional: surface action items as notes
-
-Scheduled mode: skip this step.
-
-Interactive mode: if there are substantive action items (not just "Will to review next week"), ask:
-> "Want me to drop the action items as separate notes in the meeting's Notes/ folder?"
-
-If yes, create one note per action item (filename: `action-YYYY-MM-DD-{slug}.md`), or one combined `action-items.md` if there are >5 items.
+If nothing was queued in Step 7 (engineer skipped, scheduled run found no last-workday meetings), don't load `TRANSCRIPT_INGEST.md`.
 
 ---
 
@@ -797,24 +581,13 @@ Omit lines where the count is 0. Keep it terse.
 
 ## Edge Cases
 
-**No events in the window.** Log/report "Nothing on your calendar for [START, END]." Don't do any file operations.
-
-**Event has no body.** Fine — skip the description paragraph and the `## Agenda` section in CLAUDE.md. Not all meetings have agendas.
-
-**Declined or tentative events.** Still create the folder (response status goes in the Attendees table). Don't change `status` based on the engineer's response — keep it on-track by default.
-
-**All-day events that aren't OOO.** Rare, but possible (off-site days, training). Treat as regular meetings — create a folder. If there's no time, write `| **Time** | All day |` in Meeting Details.
-
-**Recurring series with many occurrences in the window.** Every occurrence in `[START, END]` gets its own folder. An ArC Scrum that meets Mon/Wed/Fri across 2 weeks produces 6 folders. The deterministic nameColor ensures they all share the same color on the planner calendar.
-
-**Attendee list is huge (>30 people).** Truncate to first 20 in the Attendees table with a footer: `...and 14 more attendees (truncated).` Full list remains in Outlook.
-
-**MCP returns stringified JSON.** Parse it. Don't assume shape — probe with a small test call if you haven't seen the connector's output format. Meeting schemas differ between MCP implementations.
-
-**OOO event with no recognizable name.** If the OOO title is just "Out of Office" with no name, use the organizer's name. If there's no organizer either, fall back to `(unknown)` and log a warning.
-
-**OOO.md already has an entry with the same date range but different reason.** Keep the existing entry, don't duplicate, don't change. An engineer may have edited the reason manually.
-
-**Scheduled task runs during a weekend.** The workweek calculation already handles this (Sat → Monday is the upcoming workweek; Sun → same). The last-workday calculation handles it too (Sat→Fri, Sun→Fri).
-
-**Interactive engineer wants a different window.** They need to say so explicitly ("sync next month only"). In that case, skip Step 1's automatic window calc and use their range. Don't make this a configurable option — it's a one-off override, rare.
+- **No events in window.** Report "Nothing on your calendar for [START, END]." No file ops.
+- **Event has no body.** Skip the description paragraph and `## Agenda`. Not every meeting has one.
+- **Declined/tentative.** Still create the folder. Don't change `status` based on the engineer's response.
+- **All-day non-OOO** (off-site, training). Treat as regular meeting; write `| **Time** | All day |`.
+- **Recurring series with many occurrences.** Every occurrence in `[START, END]` gets its own folder; `nameColor` ensures they share a color.
+- **Attendee list >30.** Truncate to first 20 with footer `...and N more attendees (truncated).`
+- **OOO event with no recognizable name.** Fall back to organizer's name, then `(unknown)` with a warning.
+- **OOO.md entry same dates, different reason.** Keep the existing entry — the engineer may have edited the reason.
+- **Weekend run.** Step 1 and last-workday math already handle Sat/Sun.
+- **Engineer requests a one-off window** ("sync next month only"). Skip Step 1's auto window for that run only — don't make it configurable.

@@ -5,182 +5,109 @@ description: Summarize the current Cowork conversation, save it to a project, AN
 
 # /share-chat — Save This Conversation to a Project AND Share to Team
 
-`/share-chat` is **`/save-summary` + a team-folder push**. It always operates on the current Cowork conversation. Use it when you want both your own project record AND team-wide visibility in the shared RDC folder.
+`/share-chat` = **`/save-summary` + a team-folder push**. Always operates on the current conversation.
 
-**For other team-sharing scenarios, use a different command:**
-
-| If you want to share... | Use |
+| To share... | Use |
 |---|---|
-| The current Cowork conversation as a summary | **`/share-chat`** (this command) |
-| Specific knowledge you're dictating ("team should know that...") | **`promote-to-team`** |
-| An existing note or chat summary from your workspace | **`promote-to-team`** |
-| Just save the current chat to a project (no team push) | **`/save-summary`** |
+| The current Cowork conversation | **`/share-chat`** (this command) |
+| Dictated knowledge ("team should know that...") | **`promote-to-team`** |
+| An existing note or chat summary | **`promote-to-team`** |
+| Current chat to a project, no team push | **`/save-summary`** |
 
-If the engineer's phrasing suggests they want to share dictated or existing content (e.g., "team should know X" or "share that note I wrote on P6"), don't run `/share-chat` — redirect:
-> "Sounds like you want `promote-to-team` — that handles dictation and existing notes. `/share-chat` is for summarizing the current conversation. Want to switch?"
+If the engineer's phrasing fits `promote-to-team` (dictation, existing content), redirect:
+> "Sounds like you want `promote-to-team` — it handles dictation and existing notes. `/share-chat` is for the current conversation. Want to switch?"
 
-**File format note.** The project copy is written as `.md` (markdown — for the planner UI). The team copy is written as `.txt` (plain text — for SharePoint, which previews and search-indexes `.txt` better than `.md`). The content is identical — only the extension differs.
+**File format.** Project copy `.md` (for the planner UI). Team copy `.txt` (SharePoint previews and search-indexes `.txt` better). Identical content; only the extension differs.
 
 **Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the `Chat Summaries/` filename and file format.
 
 ---
 
-## How this command relates to /save-summary
+## Step 1 — Run /save-summary
 
-This command **wraps `/save-summary`** rather than duplicating its logic. The flow is:
+Execute the full `/save-summary` workflow (Steps 1–10): target inference, confirm, manual picker, emptiness check, compose, auto-Related, file template, filename, write, pointer in `## Recent Summaries`. Do not skip steps — `/share-chat`'s value is that the project record is identical to what `/save-summary` produces.
 
-1. Run the entire `/save-summary` workflow — pick target project, compose summary, write to `Chat Summaries/`, append a pointer to `## Recent Summaries` in the project's CLAUDE.md.
-2. Then add one extra step: ask which team category, push a copy to the shared RDC folder.
+**Meeting refusal carries over.** If the chat is about a meeting:
+> "For a meeting, summarize the transcript in the meeting's CLAUDE.md (`## Transcript Summary`), not a chat summary. Want me to help with that, or drop a note in the meeting's `Notes/`?"
 
-If `/save-summary`'s behavior changes, `/share-chat` inherits the change. There's no parallel implementation.
+If the engineer cancels at any point inside `/save-summary` (empty-chat check, picker abort), exit — don't proceed to Step 2.
 
----
+## Step 2 — Resolve the shared team folder
 
-## Workflow
+Read `Personal Workspace/CLAUDE.md` → `## RESOLVED PATHS`. Look for:
+- `**Shared Team Folder**: /path/...`
+- `**My Troubleshooting Folder**`, `**My Tribal Knowledge Folder**`, `**My Brainstorming Folder**`
 
-### Step 1 — Run /save-summary
-
-Execute the full `/save-summary` workflow. The engineer goes through:
-
-- Step 1 (Infer the target project)
-- Step 2 (Confirm the target via AskUserQuestion)
-- Step 3 (Manual picker fallback if needed)
-- Step 4 (Check for emptiness)
-- Step 5 (Compose the summary)
-- Step 6 (Auto-populate Related section)
-- Step 7 (Use the file template)
-- Step 8 (Pick the filename)
-- Step 9 (Write the summary file)
-- Step 10 (Append pointer to project's CLAUDE.md)
-
-**Do not skip any of these steps.** The `/share-chat` command's value is that the project record is identical to what `/save-summary` would produce — same file, same pointer.
-
-**One difference at Step 1 (Target inference):** `/share-chat` is project-only, just like `/save-summary`. If the engineer has been talking about a meeting, refuse and redirect:
-
-> "For a meeting, you'd want to summarize the transcript directly in the meeting's CLAUDE.md (`## Transcript Summary` section), not save a chat summary. Want me to help with that instead, or drop a note in the meeting's `Notes/`?"
-
-If the engineer cancels at any point during `/save-summary` (e.g., picks "Keep going first" on the empty-chat check, or aborts the target picker), exit immediately — don't proceed to Step 2 below.
-
-### Step 2 — Resolve the shared team folder
-
-Read `Personal Workspace/CLAUDE.md` → `## RESOLVED PATHS` section. Look for these lines:
-
-```markdown
-- **Shared Team Folder**: /path/to/RDC Renovations - 06 Production Support
-- **My Troubleshooting Folder**: /path/.../Troubleshooting/[Engineer Name]/
-- **My Tribal Knowledge Folder**: /path/.../Tribal Knowledge/[Engineer Name]/
-- **My Brainstorming Folder**: /path/.../Brainstorming/[Engineer Name]/
-```
-
-If `Shared Team Folder` is `NOT CONFIGURED` or the three category folder paths are missing:
-
+**If `Shared Team Folder` is `NOT CONFIGURED`** or the category folders are missing:
 > "Team sharing isn't set up yet. Your summary is saved to the project — run `/join-team` to enable team sharing."
 
-Don't fail loudly. The project save already succeeded — that's the more important half. Just exit cleanly.
+The project save already succeeded. Exit cleanly; don't fail loudly.
 
-If the stored paths might be stale (old session ID), re-resolve at runtime:
+If stored paths might be stale, re-resolve:
 ```bash
 find /sessions/[current-session]/mnt/ -maxdepth 3 -type d -name "RDC Renovations*"
 ```
 
-Verify the engineer's category folders actually exist on disk:
+Verify the three category folders exist:
 ```bash
 test -d "[Shared RDC]/Troubleshooting/[Engineer Name]" && \
 test -d "[Shared RDC]/Tribal Knowledge/[Engineer Name]" && \
 test -d "[Shared RDC]/Brainstorming/[Engineer Name]"
 ```
 
-If any are missing, tell the engineer: *"Your team folders look incomplete — run `/join-team` to fix them, then `/share-chat` again."*
+Any missing → *"Your team folders look incomplete — run `/join-team` to fix them, then `/share-chat` again."*
 
-### Step 3 — Ask which team category
+## Step 3 — Team category
 
-Use **AskUserQuestion**:
+**AskUserQuestion**: "Which team category should this go into?"
 
-> "Which team category should this go into?"
-
-Options:
-- **Troubleshooting** — we solved a problem, debugged an issue, or found a fix
+- **Troubleshooting** — solved a problem, debugged, found a fix
 - **Tribal Knowledge** — institutional knowledge others should know
 - **Brainstorming** — ideas, proposals, improvements
-- **Skip — keep it on my project only** — no team push (engineer changed their mind; project save still stands)
+- **Skip — keep it on my project only** — no team push (project save still stands)
 
-If the conversation has clear signals for a specific category (e.g., a clear root-cause-and-fix structure → Troubleshooting; a "we should consider" pattern → Brainstorming), put that option first and label it `(Recommended)`.
+If the chat has clear signals (root-cause-and-fix → Troubleshooting; "we should consider" → Brainstorming), put that first and label `(Recommended)`.
 
-If they pick "Skip", exit cleanly:
+If they pick Skip:
 > "Saved to your project only. Re-run `/share-chat` if you change your mind."
 
-### Step 4 — Push the file to the shared folder as .txt
+## Step 4 — Push to the shared folder as .txt
 
-Write the team copy to the engineer's category folder, **changing the extension from `.md` to `.txt`**:
+Write to `[Shared RDC]/[Category]/[Engineer Name]/[same filename stem].txt`.
 
-```
-[Shared RDC]/[Category]/[Engineer Name]/[same filename stem].txt
-```
+Same content, `.txt` extension. Don't reformat or strip markdown — the bytes are identical to the `.md`, only the extension differs. SharePoint web/Outlook search will show plain text with markdown chars visible (`#`, `**`, `-`); that's intentional.
 
-For example, if the project save wrote `2026-04-23 - P4 flow meter range debate.md` to `Projects/P4 Flow Meter Replacement/Chat Summaries/`, the team copy is `2026-04-23 - P4 flow meter range debate.txt` in `Troubleshooting/[Engineer Name]/`.
-
-**Same content, .txt extension.** Don't reformat. Don't add headers. Don't strip markdown syntax — just write the same bytes the `.md` file has, with the `.txt` extension so SharePoint can preview and search-index it cleanly. Engineers viewing the file in SharePoint web or Outlook search will see plain text with markdown characters visible (`#`, `**`, `-`); that's intentional and acceptable.
-
-The simplest implementation is to read the project `.md` file and write its content out to the `.txt` path:
-
+Simplest implementation:
 ```bash
-# Read the just-written project .md file
 cp "[project save path].md" "[Shared RDC]/[Category]/[Engineer Name]/[filename stem].txt"
 ```
 
-(Or the equivalent in your language of choice. The point is: the bytes are identical, only the extension differs.)
-
-**Verify before:**
-```bash
-test -d "[Shared RDC]/[Category]/[Engineer Name]" && \
-test -w "[Shared RDC]/[Category]/[Engineer Name]"
-```
-
-**Verify after:**
-```bash
-test -f "[full destination .txt path]" && test -s "[full destination .txt path]"
-```
-
-If either verification fails, report clearly:
+Verify directory writable before, file non-empty after. On failure:
 > "Project copy saved successfully, but the team folder write failed (likely a SharePoint sync issue). Run `/share-chat` again later, or copy the file from `[project .md path]` to the team folder manually as a `.txt`."
 
-### Step 5 — Confirm
-
-Two-line confirmation, showing both file paths with their respective extensions:
+## Step 5 — Confirm
 
 > "Saved:
 > - **Project**: [Mount]/[Project Folder]/Chat Summaries/[filename].md
 > - **Team**: [Category]/[Engineer Name]/[filename].txt"
 
-Don't repeat the summary content. Engineer can open either file.
-
-If the team push was skipped (Step 3 = Skip):
+If team push was skipped:
 > "Saved to project only: [Mount]/[Project Folder]/Chat Summaries/[filename].md"
 
 ---
 
 ## Edge Cases
 
-**Engineer cancelled during /save-summary.** The team push never happens. The project copy doesn't exist either. Exit silently.
+- **Cancelled during `/save-summary`.** No team push, no project copy. Exit silently.
+- **Workspace-level summary** (no specific project). Team push still works; the `/save-summary` per-project pointer step is naturally skipped.
+- **Filename collision in team folder.** Append `(2)` to the team copy only; project `.md` keeps its original name.
+- **Engineer wants multiple categories.** Run `/share-chat` again, pick the second category. Don't support multi-category in one run.
+- **Sensitive info.** Already stripped by `/save-summary`; the team copy inherits.
 
-**Workspace-level summary.** If `/save-summary` saved to `Personal Workspace/Chat Summaries/` (cross-cutting summary, no specific project), the team push still works — pick a category, push to the engineer's category folder. The "project pointer" step from `/save-summary` is naturally skipped for workspace-level saves (there's no per-project CLAUDE.md to update).
+## Safety
 
-**Filename collision in the team folder.** If a `.txt` file with the same stem already exists in `[Shared RDC]/[Category]/[Engineer Name]/`, append a `(2)` suffix to the team copy only — `2026-04-23 - topic (2).txt`. The project `.md` copy keeps its original filename. Both files now exist with slightly different names.
-
-**Engineer wants to push to multiple categories.** Rare. If they really want this, run `/share-chat` again and pick the second category — the project copy stays the same, two team copies result. Don't try to support multi-category in a single run.
-
-**Sensitive info in the summary.** Already handled by `/save-summary`'s sensitive-info stripping. The team copy inherits the same stripped content.
-
-**Engineer picked the wrong category and notices afterward.** They can manually move the file in the shared folder (or ask Claude to). This command doesn't track team-folder file history.
-
----
-
-## Mounted Folder Safety
-
-- **ALWAYS** complete the `/save-summary` flow first. The project save is the priority — never let a team-push failure prevent the project save from succeeding.
-- **ALWAYS** resolve paths at runtime — stored paths in CLAUDE.md may point to expired session IDs.
-- **ALWAYS** verify the engineer's category folders exist before attempting the team write. Missing folders mean `/join-team` was never run or didn't finish — surface that and stop.
-- **ALWAYS** verify after writing (file exists, is non-empty).
-- **NEVER** modify the project copy after it's saved. The team copy is a snapshot.
-- **NEVER** overwrite an existing file in the team folder — append a `(2)` suffix instead.
-- **ALWAYS** report both destination paths in the confirmation.
+- Always complete `/save-summary` first. Team-push failure must not block the project save.
+- Resolve paths at runtime (stored paths may have stale session IDs).
+- Verify category folders exist before the team write; never overwrite (suffix instead).
+- Never modify the project copy after it's saved — the team copy is a snapshot.
+- Always report both destination paths in the confirmation.

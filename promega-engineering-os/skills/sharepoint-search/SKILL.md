@@ -13,266 +13,162 @@ version: 1.0.0
 
 # SharePoint Engineering Knowledge Search
 
-Search Promega's engineering SharePoint for company-specific documentation, design specifications, process documents, control system details, and institutional knowledge. This is the primary way to answer questions about how Promega designs, operates, and validates equipment and processes.
+The primary path for Promega-specific engineering questions. Walks the **4-tier search hierarchy** (workspace → shared RDC folder → SharePoint → general knowledge), with **Tier 1 always mandatory**.
 
-**Current state**: SharePoint sites exist and contain engineering documentation, but the SharePoint architecture for a centralized engineering knowledge base is still being built out. The sites listed below are available for searching — use them when relevant, but don't assume every document type will be there. When SharePoint comes up empty, that's expected for some topics.
+> **Current state.** SharePoint contains real engineering documentation, but the centralized knowledge base is still being built out. Empty results for some topics are expected — surface them honestly rather than fabricating.
 
----
+## When to use
 
-## When to Use This Skill
-
-**Always use when the question is Promega-specific:**
-- Design Specifications (DS documents) and change controls
-- Process and operation procedures (TSOPs)
-- Equipment Module (EM) configurations and phase summaries
-- P&IDs, piping, and utility interface documentation
-- ISA-88 batch recipes and recipe documentation
-- PLC/FactoryTalk Batch configuration standards and examples
-- Team-specific processes and workflows
-- Equipment behavior and troubleshooting approaches
-- "How do we..." or "What's our..." questions about fermentation, centrifugation, controls
-
-**Search hierarchy (always followed by this skill):**
-1. **Personal Workspace** — the engineer's own notes, summaries, and project folders (always searched first, routed by conversation context)
-2. **Shared RDC team folder** — solved problems and tribal knowledge from all engineers
-3. **Company SharePoint** — formal documentation (Design Specs, SOPs, TSOPs, P&IDs, EM summaries)
-4. **General knowledge / internet** — last resort, flagged explicitly when used
-
-**The engineer's SharePoint preference (from their CLAUDE.md) controls Tier 3 aggressiveness, not the order:**
-- **Always check first**: Search SharePoint aggressively (still after Tiers 1 and 2)
-- **On request only**: Only escalate to Tier 3 when the user explicitly asks
-- **Balanced**: Hit Tier 3 for standards/processes, fall through to Tier 4 for conceptual how-to
+Promega-specific questions: design specs, change controls, TSOPs, EM configurations, P&IDs, ISA-88 batch recipes, FactoryTalk Batch standards, team-specific processes, equipment behavior, "how do we...", "what's our...", etc.
 
 ---
 
-## Search Priority Order — Four-Tier Hierarchy
+## Search hierarchy (in order, Tier 1 mandatory)
 
-When answering a Promega automation engineering question, search in this order. **Tier 1 is mandatory — never skip it.**
+1. **Personal Workspace.** Route by conversation context (see Step 0). Almost always has the most relevant prior thinking — the engineer has touched the topic before.
+2. **Shared RDC folder.** All engineers' Troubleshooting / Tribal Knowledge / Brainstorming entries — search everyone's contributions, not just the asking engineer's.
+3. **Company SharePoint.** Formal documentation (DSes, SOPs, TSOPs, P&IDs, controlled docs).
+4. **General knowledge / internet.** Last resort. **Never use for Promega-specific facts** — if Tiers 1–3 are empty for a Promega-specific question, say so.
 
-1. **Personal Workspace (the engineer's own notes, summaries, and projects) — FIRST**
-   - Use conversation context to figure out *where* in the workspace to look. Don't grep blindly across the whole workspace if the topic clearly maps to one folder.
-   - Equipment / vessel / CC mentioned → matching folder under `Projects/`, `Change Controls/`, `DS Revisions/`, `Commissioning/` (whichever mounts exist). Read its `CLAUDE.md`, `Notes/`, `Chat Summaries/`, `Files/`.
-   - Meeting / decision / action item → matching folder under `Meetings/`. Read its `CLAUDE.md`, `Notes/`, `Transcripts/`.
-   - Process / how-I-do-something → grep across all `Notes/` and `Chat Summaries/` workspace-wide.
-   - Topic unclear → check workspace-level `CLAUDE.md`, `Chat Summaries/`, and `Files/`, then expand outward.
-   - This tier almost always has the most relevant context — the engineer has touched the topic before and the prior thinking lives here.
+**Engineer's SharePoint preference (from their workspace CLAUDE.md) controls Tier 3 aggressiveness, not order:**
+- Always check first → search SharePoint aggressively (still after Tiers 1 and 2).
+- On request only → escalate to Tier 3 only when explicitly asked.
+- Balanced → Tier 3 for standards/processes, fall through to Tier 4 for conceptual how-to.
 
-2. **Shared RDC Folder (Team Knowledge) — SECOND**
-   - Search ALL engineers' entries across ALL three categories (Troubleshooting, Tribal Knowledge, Brainstorming)
-   - Not scoped to the asking engineer — search everyone's contributions
-   - Solved problems and institutional knowledge from people working on the same equipment, same systems, same facility
+**Skip-Tier exceptions** (only Tier 1 → Tier 4 is allowed to skip):
+- Engineer says "search SharePoint" or "look it up online" — honor the instruction.
+- Question is purely conceptual, not tied to their work ("What is ISA-88?", "How does PID tuning math work?") — Tier 4 fine, mention it.
 
-3. **SharePoint (Company Documentation) — THIRD**
-   - For formal documentation (design specs, SOPs, TSOPs, P&IDs, controlled documents)
-   - Use SharePoint search tools
+For everything else, start with the workspace.
 
-4. **General Knowledge / Internet — LAST RESORT**
-   - Fall back only when Tiers 1–3 have nothing relevant
-   - Flag explicitly when used: "Not in your workspace, the team folder, or SharePoint — here's general knowledge"
-   - Never use for Promega-specific facts (vessels, CC procedures, EtQ workflow, our DS conventions). If those tiers are empty for a Promega-specific question, say so — don't fabricate from training.
-
-### Smart Routing
-
-The skill should recognize when to skip tiers, but **only Tier 1 → Tier 4 is allowed to skip**, and only in two cases:
-- The engineer explicitly says "search SharePoint" or "look it up online" — honor the instruction.
-- The question is purely conceptual and not tied to the engineer's work (e.g., "What is ISA-88?", "How does PID tuning math work?") — Tier 4 is fine, but mention it.
-
-For everything else, **start with the Personal Workspace.** Examples:
-- "What's the DS for Ferm B?" → Tier 1 (any DS work the engineer has done?), then Tier 3 (SharePoint formal doc)
-- "Has anyone had issues with the P6 temperature probe?" → Tier 1 (engineer's own P6 notes/summaries), then Tier 2 (team folder)
-- "How do we handle CIP on the weekends?" → Tier 1 (engineer's CIP notes), then Tier 2, then Tier 3
-- "What is ISA-88?" → Tier 4 directly (purely conceptual)
-
-### Growth Model
-
-Early on, both the personal workspace and shared folder will be sparse. Most searches will fall through to SharePoint. That's fine. As the engineer accumulates notes, summaries, and project history — and as the team promotes more knowledge — Tiers 1 and 2 become increasingly valuable. The system naturally gets better over time without any configuration changes.
+**Growth model.** Tiers 1 and 2 start sparse; most early searches fall through to SharePoint. As the engineer accumulates notes and the team promotes more knowledge, Tiers 1–2 become increasingly valuable automatically.
 
 ---
 
-## Search Strategy
+## Search procedure
 
-### Step 0 — Search the Personal Workspace (ALWAYS FIRST)
+### Step 0 — Workspace (always first)
 
-Before anything else, search the engineer's own Personal Workspace. Use conversation context to target the right folder(s) — don't grep the whole workspace if the topic maps clearly to one item.
+Locate `Personal Workspace/` in the mounted folder. Read its top-level `CLAUDE.md` to confirm mounts and resolved paths.
 
-1. **Locate the workspace.** Find `Personal Workspace/` inside the engineer's mounted folder. Read its top-level `CLAUDE.md` to confirm the mount layout and resolved paths.
+Route by context:
 
-2. **Pick the right folder(s) based on conversation context:**
+| Context cue | Where to look |
+|---|---|
+| Equipment, vessel (P1–P6, Large Scale), CC number, DS, system, project name | Matching item folder under `Projects/`, `Change Controls/`, `DS Revisions/`, `Commissioning/`. Read `CLAUDE.md`, `Notes/`, `Chat Summaries/`, `Files/`. |
+| Meeting, decision, action item, "what did [person] say" | Matching `Meetings/` folder. Read `CLAUDE.md`, `Notes/`, `Transcripts/`. |
+| Process, procedure, "how do I", "have I done this before" | Workspace-wide grep across all `Notes/` and `Chat Summaries/`. |
+| Unclear | Workspace-level `CLAUDE.md`, then `Chat Summaries/`, expand outward. |
 
-   | Context cue in the conversation | Where to look |
-   |---|---|
-   | Equipment, vessel (P1–P6, Large Scale), CC number, DS, system, project name | Matching item folder under `Projects/`, `Change Controls/`, `DS Revisions/`, `Commissioning/` (whichever mounts exist). Read its `CLAUDE.md`, `Notes/`, `Chat Summaries/`, `Files/`. |
-   | Meeting, decision, action item, "what did [person] say" | Matching folder under `Meetings/`. Read its `CLAUDE.md`, `Notes/`, `Transcripts/`. |
-   | Process, procedure, "how do I", "have I done this before" | Workspace-wide grep across all `Notes/` and `Chat Summaries/`. |
-   | Topic genuinely unclear | Workspace-level `CLAUDE.md`, then `Chat Summaries/`, then expand outward. |
+**Match intelligently.** "P6 temperature" without an exact folder → also check "Ferm B" folders (P6 lives there), `Change Controls/CC*temperature*`, etc. Open `CLAUDE.md` to confirm a candidate folder is on-topic before reporting back.
 
-3. **Match folders intelligently.** If the conversation mentions "P6 temperature" and there's no exact-match folder, also check folders for "Ferm B" (P6 lives there), `Change Controls/CC*temperature*`, etc. Item folder names won't always be literal — use the `CLAUDE.md` description to confirm a folder is on-topic.
+**Search across `.md` and `.txt`** — Notes are `.md`, Chat Summaries are `.md`. Use the Grep tool, not bash grep.
 
-4. **Search across both `.md` and `.txt`** inside the workspace — `Notes/` files are `.md` written by the engineer, `Chat Summaries/` files are `.md` written by Cowork. Use the Grep tool, not bash grep.
+**Freshness rule** — sort matches by mtime (newest first). Lead with the freshest; if it contradicts older results, call out the difference.
 
-5. **Present workspace findings** with: file path, item folder (which project/CC/meeting), section header if applicable, and a quoted relevant excerpt.
+**Nothing in Tier 1** — say so explicitly: "Nothing in your workspace on this", then continue.
 
-6. **Freshness rule — sort by most recently edited.** When multiple files match, use filesystem mtime to order them newest-first. Lead with the freshest match; surface older ones below it. If you have a way to get mtime via your tools (e.g., `ls -lt` or equivalent file metadata), use it. If the freshest match contradicts older ones, call the difference out — something probably changed.
+### Step 0.5 — Shared RDC folder
 
-7. **If the workspace has nothing relevant**, say so explicitly ("Nothing in your workspace on this") before continuing to Step 0.5. Don't silently skip — the engineer wants to know Tier 1 was checked.
+Read `## RESOLVED PATHS` for the shared folder. If `NOT CONFIGURED`, skip to Step 1.
 
-### Step 0.5 — Search Shared RDC Folder
+```bash
+find "[Shared RDC]/Troubleshooting" "[Shared RDC]/Tribal Knowledge" "[Shared RDC]/Brainstorming" \
+  -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null
+```
 
-After the Personal Workspace, before SharePoint:
+Filter by content via the Grep tool (handles permissions and index correctly). Search across **all** engineer folders in **all three** categories.
 
-1. Read `Personal Workspace/CLAUDE.md` to get the resolved path for the Shared Team Folder from the `## RESOLVED PATHS` section.
-2. If configured, recursively search the shared RDC folder for relevant content. **Search both `.md` and `.txt` files** — older shared folder entries from before the format change are `.md`; newer entries from `/share-chat` and `promote-to-team` are `.txt` (for SharePoint compatibility). Both formats hold the same kind of content.
+Older entries are `.md` (pre-format-change), newer are `.txt` (from `/share-chat` and `promote-to-team`). Both formats hold identical markdown content.
 
-   ```bash
-   # Find candidate files matching keywords across all engineer folders in all three categories
-   find "[Shared RDC]/Troubleshooting" "[Shared RDC]/Tribal Knowledge" "[Shared RDC]/Brainstorming" \
-     -type f \( -name "*.md" -o -name "*.txt" \) 2>/dev/null
-   ```
+Present findings with attribution: author (engineer name from path), category, date (from filename prefix), source path.
 
-   Then use the Grep tool to filter by content. Don't grep with bash directly — Grep handles permissions and index correctly across both extensions.
+### Step 1 — Determine search scope
 
-3. Search across ALL engineer folders in ALL three categories (Troubleshooting, Tribal Knowledge, Brainstorming) — not just the asking engineer's folder.
-4. Read and summarize relevant matches. The internal markdown structure is identical between `.md` and `.txt`; you can read either with the same parsing logic.
-5. If the shared folder is NOT configured in CLAUDE.md (shows "NOT CONFIGURED"), skip to SharePoint search.
-6. Present shared folder findings with attribution: author (engineer name from the path), category (Troubleshooting / Tribal Knowledge / Brainstorming), date (from the filename prefix), and source path.
+Based on the question:
+- **DS docs** — search by number (`[PROJECT#]-DS-PRO-FERMB-001`) or component (`DS TEMPERATURE EM`).
+- **Process procedures** — TSOPs for specific equipment.
+- **P&IDs/diagrams** — piping diagrams, schematics.
+- **Control system docs** — FactoryTalk Batch recipes, Logix 5000 docs, ISA-88 phase definitions.
+- **Equipment Modules** — EM Phase Summaries (AIR, OXYGEN, PRESSURE, AGITATION, TEMPERATURE, XFER_IN, XFER_OUT, pH).
+- **Change controls and validation** — EtQ records, validation protocols.
+- **Team docs** — team-specific sites if known from CLAUDE.md.
 
-### Step 1 — Determine Search Scope
+### Step 2 — Execute
 
-Based on the question, determine what to search for:
+Start with `sharepoint_search` using the user's question. Filter by file types (docx, pdf, xlsx) and folder names if scope is clear.
 
-- **Design Specs**: Search for DS documents by number (e.g., "[PROJECT#]-DS-PRO-FERMB-001") or by component (e.g., "DS TEMPERATURE EM")
-- **Process procedures**: Search for TSOPs for specific equipment
-- **P&IDs and diagrams**: Search for P&IDs, piping diagrams, equipment schematics
-- **Control system docs**: Search for FactoryTalk Batch recipes, Logix 5000 documentation, ISA-88 phase definitions
-- **Equipment modules**: Search for EM phase summaries, module configuration guides (AIR, OXYGEN, PRESSURE, AGITATION, TEMPERATURE, XFER_IN, XFER_OUT)
-- **Change controls and validation**: Search for EtQ change control records, validation protocols
-- **Team docs**: Search within team-specific SharePoint sites if the user's team is known from CLAUDE.md
-- **General**: Broad search across all engineering documentation
+**Too broad** → narrow by project number, equipment ID, folder name (`Design Specs`, `Change Controls`, `SOPs`), file type, or date.
 
-### Step 2 — Execute Search
+**Returns nothing** → broaden: alternative terminology ("EM Phase Summary" vs "equipment module"), `sharepoint_folder_search`, remove file type filters, search by doc structure (`[PROJECT#]-DS-` to find all design specs for a project).
 
-Use the SharePoint search tools available in the conversation:
+**Still nothing** → tell the user clearly. SharePoint is still being built out; gaps are expected.
 
-1. **Start with `sharepoint_search`** using the user's question as the query. Filter by relevant file types (docx, pdf, xlsx) and folder names if the scope is clear.
+### Step 3 — Search tips
 
-2. **If initial search is too broad**, narrow by:
-   - Adding the project number or equipment identifier to the query
-   - Filtering by folder name (e.g., "Design Specs", "Change Controls", "SOPs", "Equipment")
-   - Filtering by file type
-   - Adding date filters for recent docs
+- **DS** — doc number pattern or component name; or equipment ("P6 fermenter", "Ferm B").
+- **EM Phase Summaries** — "EM Phase Summary" + vessel ID (P1–P6, Ferm A/B, Large Scale) or module type.
+- **TSOPs** — "TSOP" + equipment/process name.
+- **Batch/PLC** — "batch recipe", "FactoryTalk", "Logix", or ISA-88 phase names.
+- **Change controls** — "EtQ" or "change control" + CC number or component.
 
-3. **If initial search returns nothing**, broaden by:
-   - Trying alternative terminology (e.g., "EM Phase Summary" vs "equipment module", "fermentation" vs "Ferm A/B")
-   - Searching folder names with `sharepoint_folder_search`
-   - Removing file type filters
-   - Searching for document structure (e.g., "[PROJECT#]-DS-" to find all design specs for a project number)
+### Step 4 — Known SharePoint sites
 
-4. **If still nothing**, that's okay — tell the user clearly and move on. The SharePoint knowledge base is still being built out, so gaps are expected.
-
-### Step 3 — Search Tips for Promega-Specific Content
-
-**For DS documents**: Search by document number pattern (e.g., "[PROJECT#]-DS-PRO-FERMB-001") or by component name (e.g., "PRESSURE EM" or "TEMPERATURE module"). If you know the equipment, use that (e.g., "P6 fermenter" or "Ferm B").
-
-**For EM Phase Summaries**: Search for "EM Phase Summary" plus the vessel identifier (P1, P2, P3, P4, P5, P6, Ferm A, Ferm B, Large Scale) or the module type (AIR, OXYGEN, TEMPERATURE, AGITATION, XFER_IN, XFER_OUT, PRESSURE).
-
-**For TSOPs**: Search for "TSOP" plus the equipment or process name (e.g., "TSOP Ferm A startup" or "TSOP centrifuge operation").
-
-**For batch/PLC docs**: Search for "batch recipe", "FactoryTalk", "Logix", or ISA-88 phase names.
-
-**For change controls**: Search "EtQ" or "change control" plus the CC number (CC#####) or component affected (e.g., "change control TEMPERATURE EM" or "change control Ferm B").
-
-### Step 4 — Available SharePoint Sites
-
-Known Promega engineering SharePoint sites:
-
-| Site | Typical Content |
-|------|----------------|
+| Site | Content |
+|---|---|
 | **RDC Renovations** | Design docs, commissioning, batch training, procurement |
-| **RDC Renovations - 06 Production Support** | Change controls, DS updates, production support docs |
-| **Process Engineering 2** | Co-op roadmaps, process engineering documentation |
+| **RDC Renovations - 06 Production Support** | Change controls, DS updates, production support |
+| **Process Engineering 2** | Co-op roadmaps, process engineering docs |
 | **IVD Production and Engineering** | Project tracking |
-| **QA Audit** | Change control records, SOPs, audit documents |
-| **EMS Audit** | Environmental monitoring, EMS audit records, compliance documents |
+| **QA Audit** | Change control records, SOPs, audit docs |
+| **EMS Audit** | Environmental monitoring, compliance |
 
-**Note**: This is not an exhaustive list. Additional SharePoint sites may be available and will be added as the SharePoint architecture is built out. If a search doesn't find what the user needs, try different sites or broader queries.
+Not exhaustive; more sites may be available.
 
-### Step 5 — Read and Synthesize
+### Step 5 — Read and synthesize
 
-For each relevant result:
+For each relevant result: `read_resource` with the URI, extract the relevant sections, note title / doc number / author / last modified.
 
-1. Use `read_resource` with the document's URI to get full content
-2. Extract the relevant sections that answer the user's question
-3. Note the document title, document number (if applicable), author, and last modified date for citation
+### Step 6 — Present
 
-### Step 6 — Present Results
+**Results found** — note the tier, summarize the answer, cite sources (title, doc number, location, last updated). If outdated/incomplete, flag and offer to help update. Conflicting docs: present both and suggest checking with the relevant team.
 
-**If relevant docs found (from Personal Workspace, shared folder, or SharePoint):**
-- Note which tier the result came from (Personal Workspace, team knowledge, or SharePoint)
-- Summarize the answer based on what was found
-- Cite the source document(s) — title, document number, location, and last updated date
-- If the doc is outdated or incomplete, note that and offer to help update it
-- If multiple docs conflict, flag the discrepancy and suggest checking with the relevant team
+**Nothing found** — say so plainly: "I didn't find anything in your workspace, the team folder, or SharePoint about this." Don't make it a big deal.
 
-**If no relevant docs found:**
-- Tell the user clearly: "I didn't find anything in your workspace, the team folder, or SharePoint about this."
-- Don't make it a big deal — the knowledge base is still growing.
-- **Never fabricate a result to fill the gap.** Don't invent a CC number, DS document, tag name, or quote. "I don't know" is the right answer. If you fall through to general knowledge, label it explicitly: "Not in any Promega source — here's general knowledge, treat as unverified for our facility." If you ever catch yourself producing a fabricated detail, stop and disclose it ("I just fabricated [X] — I don't actually have that information.").
-- Offer two options:
-  1. Answer from general knowledge (with a caveat that it may not match Promega practices).
-  2. Suggest capturing what they know:
-     - `/save-note` (or "save to notes...") — for a local note in a project's `Notes/`
-     - `/share-chat` — to summarize the current chat into a project AND push a `.txt` copy to the shared team folder so the next engineer who searches finds it
-     - `promote-to-team` — to push specific knowledge they describe directly into the shared team folder (Troubleshooting / Tribal Knowledge / Brainstorming)
+**Never fabricate to fill a gap.** Don't invent CC numbers, DS document IDs, tag names, or quotes. "I don't know" is the right answer. If you fall through to Tier 4, label it: "Not in any Promega source — here's general knowledge, treat as unverified for our facility." If you catch yourself fabricating, stop and disclose: "I just fabricated [X] — I don't actually have that information."
 
-**Always include sources** at the end of responses that pull from SharePoint or the shared folder:
-> Sources: [Document Title] (Doc# [if applicable]) — last updated [date]
+Offer next steps when empty: answer from general knowledge with a caveat, or capture what the engineer knows via `/save-note`, `/share-chat`, or `promote-to-team` so the next search finds it.
+
+**Always cite sources** when pulling from SharePoint or the shared folder.
 
 ---
 
-## Controlled vs Uncontrolled Documents
+## Controlled vs. uncontrolled documents
 
-SharePoint contains working copies and reference materials, but Promega's approved, authoritative documents live in controlled systems. When search results include documents that should have controlled versions, flag this distinction.
+SharePoint contains working copies and reference materials. Authoritative versions of regulated documents live in controlled systems:
 
-### Controlled Document Systems (Authoritative)
-
-| Document Type | Controlled System | Identifier Format |
+| Document type | Controlled system | Identifier |
 |---|---|---|
-| SOPs, Work Instructions, Specs, Test Methods | **MasterControl** | SOP-XXX-##, WI-XXX-##, SPEC-XXX-##, TM-XXX-## |
-| Forms/Templates | **MasterControl** | FORM-XXX-## |
-| Validation Protocols/Reports | **MasterControl** | VP-XXX, VR-XXX |
-| Deviations, CAPAs, Change Controls | **EtQ** | DEV-####, CAPA-####, CC##### |
-| EHS Incidents, JSAs, PHAs, SDS | **VelocityEHS** | Incident ID, Assessment ID |
-| Batch Manufacturing Records | **MES + EtQ** | Batch number |
+| SOPs, Work Instructions, Specs, Test Methods | MasterControl | `SOP-XXX-##`, `WI-XXX-##`, `SPEC-XXX-##`, `TM-XXX-##` |
+| Forms / Templates | MasterControl | `FORM-XXX-##` |
+| Validation Protocols / Reports | MasterControl | `VP-XXX`, `VR-XXX` |
+| Deviations, CAPAs, Change Controls | EtQ | `DEV-####`, `CAPA-####`, `CC#####` |
+| EHS Incidents, JSAs, PHAs, SDS | VelocityEHS | Incident ID, Assessment ID |
+| Batch Manufacturing Records | MES + EtQ | Batch number |
 
-### SharePoint Documents (Working/Reference)
+If a SharePoint hit's title includes "SOP", "Work Instruction", "Specification", "JSA", "PHA", "Deviation", "CAPA", or "Validation", add:
 
-SharePoint content is useful for background, context, and planning, but is NOT authoritative for:
-- Procedures, specifications, or regulatory documents
-- Documents that should exist in MasterControl, EtQ, or VelocityEHS
+> This document type typically has an approved version in [MasterControl/VelocityEHS/EtQ]. The SharePoint copy may be a draft or outdated. For formal work (change controls, investigations, audits), reference the controlled-system version.
 
-### When to Flag
-
-If a SharePoint search returns a document with "SOP", "Work Instruction", "Specification", "JSA", "PHA", "Deviation", "CAPA", or "Validation" in the title, add this note:
-
-> This document type typically has an approved version in [MasterControl/VelocityEHS/EtQ]. The SharePoint copy may be a draft or outdated. For formal work (change controls, investigations, audits), reference the controlled system version.
-
-For informal reference, project planning, or general understanding, SharePoint copies are fine — just note the distinction.
+Informal reference / planning / general understanding — SharePoint copies are fine; just note the distinction.
 
 ---
 
 ## Edge Cases
 
-**User asks about something not yet documented**: Offer to help them write it up. Suggest the right path based on what they want:
-- `/save-note` if they just want a quick local note on a project
-- `/share-chat` if the current conversation already covers it — saves a project summary AND pushes a `.txt` to the shared team folder
-- `promote-to-team` if they want to dictate the full content directly into the shared folder under a specific category
-
-**Doc is outdated**: Flag it. Say something like: "I found [doc title] but it was last updated [date] — it might be outdated. Want me to help draft an update?"
-
-**Multiple conflicting docs**: Present both, note the conflict, and suggest the user check with the relevant team (Controls Engineers, Process Engineering, Production Support).
-
-**Equipment behavior differs from DS**: This is common. Flag it: "The design spec says [X], but you're observing [Y]. This might be a known issue or a change that wasn't documented. Want me to search for known workarounds or help document the actual behavior?"
-
-**User doesn't have SharePoint connector enabled**: If SharePoint tools aren't available in the session, tell the user: "I can't access SharePoint right now. You may need to enable the Microsoft connector in your Claude settings. In the meantime, I can answer from general knowledge."
-
-**SharePoint returns no results for a topic that should exist**: Don't panic. The SharePoint architecture is still being built out. Let the user know and offer alternatives.
+- **Topic not yet documented.** Offer to help write it up: `/save-note` (local project note), `/share-chat` (current chat → project + team folder), `promote-to-team` (dictate full content into a team category).
+- **Outdated doc.** Flag the last-modified date, offer to help draft an update.
+- **Conflicting docs.** Present both, note the conflict, suggest checking with the relevant team.
+- **Behavior differs from DS.** Common. Flag it; offer to search for workarounds or document actual behavior.
+- **No SharePoint connector.** "I can't access SharePoint right now. Enable the Microsoft connector in your Claude settings. In the meantime, I can answer from general knowledge."
+- **Topic that should exist returns nothing.** Don't panic; SharePoint architecture is still being built out.
