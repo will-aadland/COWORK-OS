@@ -35,9 +35,10 @@ find /sessions/[session-id]/mnt/[MOUNT_NAME] -type d -name "RDC Renovations*" -m
 Check in order:
 1. `Personal Workspace/CLAUDE.md` title line (`# Promega Engineering Workspace, [USER NAME]`).
 2. Personal Preferences `## About Me`.
-3. Ask: *"What's your name? I'll use it to create your folders in the shared team space."*
+3. **Softserve MCP, if connected**: `get-current-user` → use `displayName` (fall back to `userPrincipalName` when `displayName` is empty). Silent skip if Softserve isn't connected; don't prompt the engineer to connect it just for this.
+4. Ask: *"What's your name? I'll use it to create your folders in the shared team space."*
 
-If CLAUDE.md and Personal Preferences disagree (rare), trust CLAUDE.md — it's workspace-local.
+If CLAUDE.md and Personal Preferences disagree (rare), trust CLAUDE.md — it's workspace-local. If `get-current-user` disagrees with CLAUDE.md, also trust CLAUDE.md — the engineer may have chosen a preferred display name in the workspace that differs from their AD record.
 
 ## Step 3 — Create the folder structure
 

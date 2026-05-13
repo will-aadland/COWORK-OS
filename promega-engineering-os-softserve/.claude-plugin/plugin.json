@@ -1,0 +1,9 @@
+{
+  "name": "promega-engineering-os-softserve",
+  "version": "4.0.0",
+  "description": "Softserve variant of promega-engineering-os. Same workspace structure and commands as the standard plugin, but meeting-sync is rewired onto the Promega-internal Softserve MS365 connector (Microsoft Graph). Unlocks richer event data: four-column Attendees table (Email, Response, Attended, Minutes), Recurrence row from series-master fetches, Recording row from list-meeting-recordings, simpler transcript matching by createdDateTime (no base64 ID decoding). Also adds get-current-user as a name-resolution fallback in /join-team. Requires the Softserve MS365 connector enabled in Claude Customize - if you don't have Softserve access, install the standard promega-engineering-os plugin instead. Workspace files written by either variant are forward-compatible with the other.",
+  "author": {
+    "name": "Will Aadland"
+  },
+  "keywords": ["automation", "promega", "project-planner", "softserve", "ms365", "microsoft-graph", "sharepoint", "ISA-88", "FactoryTalk", "Logix5000", "Logix500", "fermentation", "batch", "change-control", "process-engineering", "validation", "EtQ", "PhaseManager", "PowerBI", "SQL", "SSRS", "team-knowledge", "tribal-knowledge", "outlook-sync", "meetings", "transcripts", "attendance", "OOO"]
+}
