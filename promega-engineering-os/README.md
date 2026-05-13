@@ -61,7 +61,7 @@ Note: meetings do not have a `Chat Summaries/` folder. The planner ignores it on
 
 ## The on-disk schema (the contract)
 
-Every skill in this plugin follows the schema in `PLANNER_REFERENCE.md` at the plugin root. Highlights:
+Every skill in this plugin follows the schema documented in two files at the plugin root: `PLANNER_SCHEMA.md` (the kernel — folder layouts, filename conventions, safe-edit rules; what commands load) and `PLANNER_REFERENCE.md` (the full reference — distribution, architecture, UI behavior; what `meeting-sync` and humans load). Highlights:
 
 - **Always-present mounts**: `Personal Workspace/Projects/` and `Personal Workspace/Meetings/`.
 - **Optional add-on mounts** (chosen during `/begin`): `Change Controls/`, `DS Revisions/`, `Commissioning/`, `Documentation/`, or any custom name the engineer types. Each gets its own `Completed/` subfolder.

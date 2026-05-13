@@ -13,7 +13,7 @@ The output is a workspace shaped for the **Promega Project Planner V3** (the Vis
 
 **`/begin` does NOT run meeting-sync.** The engineer triggers it manually with "sync my meetings" after onboarding completes. This avoids creating meeting folders before the workspace is settled.
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this command.** It defines the on-disk schema every skill in this plugin follows.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the on-disk schema every skill in this plugin follows (mounts, project/meeting folder layouts, filename conventions, safe-edit rules). For background — distribution, architecture, full UI behavior — `PLANNER_REFERENCE.md` is also available but not required for this command.
 
 ---
 
@@ -348,7 +348,7 @@ This workspace is shaped for the Promega Project Planner V3 (the Visualizer, a W
 
 Meetings have `CLAUDE.md`, `Notes/`, `Files/`, and `Transcripts/` (raw .vtt or .docx transcript exports). Meetings do NOT have `Chat Summaries/`; the planner ignores it on meetings. Cowork-generated meeting summaries go into the meeting's `## Transcript Summary` section.
 
-**Never clobber `## Planner Metadata`.** Use Edit (not Write) for single-field changes. See `PLANNER_REFERENCE.md` in the plugin root for the full schema.
+**Never clobber `## Planner Metadata`.** Use Edit (not Write) for single-field changes. See `PLANNER_SCHEMA.md` § 2 in the plugin root for the full field reference and safe-edit rules.
 
 **Live reload.** The planner watches the filesystem; files appear in the UI within about 200 ms. No refresh step.
 

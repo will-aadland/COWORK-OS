@@ -9,7 +9,7 @@ Creates a new item in any of the engineer's project mounts (`Projects/`, `Change
 
 **This command does NOT create meetings.** Meetings are populated exclusively by the `meeting-sync` skill from the engineer's Outlook calendar. If the engineer asks to add a meeting manually, redirect them to run `meeting-sync` for the relevant window.
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this command.** It defines the exact templates. This command is a friendly interface over those templates.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the project folder schema, `## Planner Metadata` field values, and safe-edit rules. This command is a friendly interface over those templates.
 
 ---
 

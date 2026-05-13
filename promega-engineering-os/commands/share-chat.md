@@ -21,7 +21,7 @@ If the engineer's phrasing suggests they want to share dictated or existing cont
 
 **File format note.** The project copy is written as `.md` (markdown — for the planner UI). The team copy is written as `.txt` (plain text — for SharePoint, which previews and search-indexes `.txt` better than `.md`). The content is identical — only the extension differs.
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this command.** It defines the `Chat Summaries/` filename and file format.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the `Chat Summaries/` filename and file format.
 
 ---
 

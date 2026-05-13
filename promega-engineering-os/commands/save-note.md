@@ -7,7 +7,7 @@ description: Save a note to the right project's Notes/ folder in the Promega Eng
 
 Writes a single markdown file into the right project's `Notes/` folder so the Promega Project Planner V3 surfaces it as a card. Works whether the engineer explicitly invokes the command or says something like "save that to notes on CC11142."
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this command.** It defines the `Notes/` filename convention and file format.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the `Notes/` filename convention, file format, and routing rules.
 
 ---
 

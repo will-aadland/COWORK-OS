@@ -7,7 +7,7 @@ description: Save a summary of the current conversation to a specific project, c
 
 Summarizes the current conversation and writes it into the right project's `Chat Summaries/` folder AND registers a pointer in that project's `CLAUDE.md`. This is the **project-only** path — it does not push to the shared RDC team folder. Use `/share-chat` when you want team-wide visibility.
 
-**Read `PLANNER_REFERENCE.md` at the plugin root before running this command.** It defines the `Chat Summaries/` filename convention and file format.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this command.** It defines the `Chat Summaries/` filename convention, file format, and the rule that meetings don't have `Chat Summaries/`.
 
 ---
 
@@ -23,7 +23,7 @@ Before asking the engineer, analyze the current conversation for signals:
 
 Match the candidate(s) to actual folders in the workspace. Read the workspace CLAUDE.md's `## MOUNTS` section to get the list of project mounts, then list folders inside each.
 
-**Exclude meetings from candidates.** `/save-summary` targets projects, CCs, DS revisions, and other project-mount items, never meetings. Meetings do not have `Chat Summaries/` (the planner ignores it there, see `PLANNER_REFERENCE.md` Section 4.3). If the engineer's conversation was about a meeting, suggest one of: write a note into the meeting's `Notes/` (use `/save-note`), or update the meeting's `## Transcript Summary` section in its `CLAUDE.md`. Don't write a chat summary file into a meeting folder.
+**Exclude meetings from candidates.** `/save-summary` targets projects, CCs, DS revisions, and other project-mount items, never meetings. Meetings do not have `Chat Summaries/` (the planner ignores it there, see `PLANNER_SCHEMA.md` § 3.2). If the engineer's conversation was about a meeting, suggest one of: write a note into the meeting's `Notes/` (use `/save-note`), or update the meeting's `## Transcript Summary` section in its `CLAUDE.md`. Don't write a chat summary file into a meeting folder.
 
 ### Step 2 — Confirm the target
 
