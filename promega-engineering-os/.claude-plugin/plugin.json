@@ -1,0 +1,9 @@
+{
+  "name": "promega-engineering-os",
+  "version": "3.0.0",
+  "description": "Promega process and automation engineering workspace shaped for the Promega Project Planner V3 Visualizer (a Windows Electron desktop app, no localhost or HTTP API; filesystem-only integration). Creates a Personal Workspace with always-present mounts (Projects/, Meetings/) plus optional add-on mounts the engineer picks during /begin (Change Controls/, DS Revisions/, Commissioning/, Documentation/, custom). Each item is a folder with CLAUDE.md (containing a ## Planner Metadata block), Notes/, Chat Summaries/, Files/. Meetings add Transcripts/ (no Chat Summaries/ on meetings; the Visualizer ignores it there). Built and tested at the Arnold Center (RDC) for fermentation and production support, but works for any Promega engineering team using the Logix 5000/500 and FactoryTalk Batch / PhaseManager (ISA-88) stack: process, automation, controls/instrumentation, validation, manufacturing, IT/OT. Includes scheduled or on-demand Outlook meeting sync (em-dash folder naming, OOO file management, transcript summarization), three-tier knowledge search (shared team folder, then SharePoint, then general knowledge), team-sharing workflow with .txt outputs for SharePoint compatibility, /save-summary, /save-note, /share-chat, promote-to-team, /add-project, /join-team commands, and an ISA-88 batch model reference tuned to FERMB.",
+  "author": {
+    "name": "Will Aadland"
+  },
+  "keywords": ["automation", "promega", "project-planner", "sharepoint", "ISA-88", "FactoryTalk", "Logix5000", "Logix500", "fermentation", "batch", "change-control", "process-engineering", "validation", "EtQ", "PhaseManager", "PowerBI", "SQL", "SSRS", "team-knowledge", "tribal-knowledge", "outlook-sync", "meetings", "transcripts", "OOO"]
+}

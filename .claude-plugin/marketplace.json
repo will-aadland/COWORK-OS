@@ -1,0 +1,38 @@
+{
+  "name": "cowork-os",
+  "owner": {
+    "name": "Will Aadland"
+  },
+  "metadata": {
+    "description": "Cowork OS marketplace — Claude Code plugins for Promega engineering teams.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "promega-engineering-os",
+      "source": "./promega-engineering-os",
+      "description": "Promega process and automation engineering workspace shaped for the Promega Project Planner V3 Visualizer. Scaffolds a Personal Workspace with Projects/ and Meetings/ mounts plus optional add-ons (Change Controls, DS Revisions, Commissioning, Documentation), three-tier knowledge search (workspace → SharePoint → general), Outlook meeting sync with transcript summarization, team-sharing workflow, and an ISA-88 / FactoryTalk Batch reference tuned to FERMB. Built and tested at the Arnold Center (RDC) for fermentation production support; works for any Promega engineering team on the Logix 5000/500 + FactoryTalk Batch / PhaseManager stack.",
+      "version": "3.0.0",
+      "author": {
+        "name": "Will Aadland"
+      },
+      "category": "engineering",
+      "tags": [
+        "automation",
+        "promega",
+        "project-planner",
+        "sharepoint",
+        "ISA-88",
+        "FactoryTalk",
+        "Logix5000",
+        "fermentation",
+        "batch",
+        "change-control",
+        "process-engineering",
+        "validation",
+        "outlook-sync",
+        "meetings"
+      ]
+    }
+  ]
+}
