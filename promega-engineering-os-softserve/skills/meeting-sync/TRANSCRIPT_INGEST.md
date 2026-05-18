@@ -1,14 +1,15 @@
 # meeting-sync — Post-meeting ingest (Softserve)
 
-Sub-reference loaded conditionally from `SKILL.md` Step 7 when meetings need post-meeting enrichment. Covers three related operations that all happen on the same trigger (after a meeting fires):
+Sub-reference loaded conditionally from `SKILL.md` Step 7 when meetings need post-meeting enrichment. Covers two related operations that happen on the same trigger (after a meeting fires):
 
 - **A. Transcript ingest** — primary purpose; T1–T8.
-- **B. Attendance enrichment** — only meaningful after the meeting fires; updates `## Attendees` columns.
-- **C. Recording link** — when a Teams recording exists; appends to `## Meeting Details`.
+- **B. Recording link** — when a Teams recording exists; appends to `## Meeting Details`.
 
 All MCP calls below target the **Softserve MS365 connector** (`mcp__softserve__*` — Microsoft Graph). All are read-only and auto-allowed; no permission prompts. If Softserve isn't connected, skip the entire file and log "post-meeting enrichment skipped — Softserve not connected" in scheduled mode, or offer to connect it in interactive mode.
 
 Skip loading this file entirely when Step 7 has nothing queued (scheduled run found no last-workday meetings, or interactive run chose "Skip transcripts this run").
+
+> **Note on `## Attendees`.** The Attendees table (`Name | Email | Response`) is populated at meeting-scaffold time from the event payload (`event.attendees[i].emailAddress.{name,address}` plus `attendee.status.response`). It is *not* post-meeting data — see `SKILL.md` § 4.6 "Attendees table on create". This file does not touch `## Attendees`.
 
 ---
 
@@ -148,93 +149,22 @@ If yes, create one note per action item (filename `action-YYYY-MM-DD-{slug}.md`)
 
 ---
 
-## Section B — Attendance enrichment
-
-Fires for the same set of meetings as transcript pull (post-meeting window). Adds `Response`, `Attended`, `Minutes` columns to the meeting's `## Attendees` table.
-
-### B1. Pull response status from the event
-
-Already available from the `get-calendar-event` call in T2 — no extra request needed:
-
-```
-event.attendees[i].emailAddress.address     # the email
-event.attendees[i].status.response          # accepted | tentativelyAccepted | declined | none | organizer
-```
-
-Map response values to short labels for the table:
-- `accepted` → `accepted`
-- `tentativelyAccepted` → `tentative`
-- `declined` → `declined`
-- `none` → `—` (unanswered)
-- `organizer` → `organizer`
-
-### B2. Pull actual attendance data
-
-```
-list-meeting-attendance-reports(onlineMeetingId=...)
-   → array of reports {id, totalParticipantCount, meetingStartDateTime, meetingEndDateTime}
-```
-
-For recurring meetings, multiple reports exist (one per occurrence). Pick the report whose `meetingStartDateTime` matches the current occurrence's true UTC start within a 15-minute window (same tolerance as T4).
-
-If no reports come back → either the meeting didn't fire yet, didn't have attendance reporting enabled, or the engineer doesn't have organizer access. Skip attendance enrichment for this meeting; keep email + response status only.
-
-For the matched report:
-
-```
-list-meeting-attendance-records(onlineMeetingId=..., meetingAttendanceReportId=...)
-   → array of records {identity, totalAttendanceInSeconds, role, attendanceIntervals}
-```
-
-For each record, extract:
-- `identity.user.userPrincipalName` (or `emailAddress` fallback) — to match against the event's attendee list
-- `totalAttendanceInSeconds` → divide by 60, round → `Minutes` column value
-- `attended` = `totalAttendanceInSeconds > 0` → `yes` / `no`
-
-### B3. Permission fallback
-
-`list-meeting-attendance-records` typically requires the calling user to be the meeting organizer (or have `OnlineMeetings.ReadAll` app permission). For meetings the engineer attended but didn't organize, expect a 403.
-
-On 403: **don't error**. Skip attendance enrichment, keep the email + response status from B1 only. Log once per sync (not once per meeting) so the report doesn't spam.
-
-### B4. Write the enriched Attendees table
-
-Merge response (B1) + attendance (B2) data, keyed on email. Write back to the meeting's `CLAUDE.md` `## Attendees`:
-
-```markdown
-## Attendees
-
-| Email                     | Response  | Attended | Minutes |
-|---------------------------|-----------|----------|---------|
-| claire.moll@promega.com   | accepted  | yes      | 28      |
-| akim.nilausen@promega.com | tentative | no       | —       |
-| misha.dyskin@promega.com  | organizer | yes      | 30      |
-```
-
-Rules:
-- Response always populated when the event was fetched (B1 ran).
-- `Attended` and `Minutes` may be `—` if B2 returned no data (permission fallback) or for an attendee who isn't in the attendance report (e.g., dialed-in guests).
-- Email is the join key — preserve canonical lowercase form.
-- Use the Edit tool on the table body only. Preserve the header and separator rows. See `PLANNER_SCHEMA.md` § 3.3.
-
----
-
-## Section C — Recording link
+## Section B — Recording link
 
 When a Teams recording exists for the meeting, append a `Recording` row to `## Meeting Details` so the engineer can click straight from the planner UI.
 
-### C1. List recordings
+### B1. List recordings
 
 ```
 list-meeting-recordings(onlineMeetingId=...)
    → array of {id, createdDateTime, recordingContentUrl, meetingOrganizer}
 ```
 
-For recurring meetings, multiple recordings exist (one per occurrence). Match by `createdDateTime` against this occurrence's UTC start within 15-minute tolerance (same as T4 / B2).
+For recurring meetings, multiple recordings exist (one per occurrence). Match by `createdDateTime` against this occurrence's UTC start within 15-minute tolerance (same as T4).
 
 If empty or no match → no recording for this occurrence. Skip (don't write a Recording row).
 
-### C2. Write the Recording row
+### B2. Write the Recording row
 
 Update the meeting's `## Meeting Details` table to include:
 
@@ -255,7 +185,6 @@ The URL goes verbatim from `recording.recordingContentUrl`. Don't try to downloa
 If Softserve is unavailable mid-run (network blip, MCP disconnected), individual MCP calls return errors. Treat each call independently:
 
 - T2/T3 fail → skip transcript for that meeting; log; move on.
-- B2 fail (permission) → skip attendance; keep B1 response status.
-- C1 fail → skip recording; no row written.
+- B1 fail → skip recording; no row written.
 
 Never abort the whole sync because one MCP call to one meeting fails.

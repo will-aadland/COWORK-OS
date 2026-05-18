@@ -8,22 +8,23 @@ description: >
   are skipped silently. Out-of-office (OOO) events don't get folders — they update a
   single `Meetings/OOO.md` file instead, with partial-day OOO logged as a time range.
   Near-duplicate folder names from older sanitization rules (& vs and, : vs -, quotes,
-  em-dash variants) are auto-merged into the canonical name. After meetings fire, pulls
-  transcripts, attendance reports (Response/Attended/Minutes columns), and recording
-  links via Softserve. Transcripts match the right occurrence by `createdDateTime`
-  (no base64 timestamp decoding). Has two modes: scheduled (runs without interaction,
-  pulls post-meeting data from the last workday automatically) and interactive (engineer
-  picks what to pull). Trigger phrases include "sync my meetings," "sync my calendar,"
-  "pull my meetings," "grab my meetings," "update OOO," "update my meetings." Also runs
-  on schedule when configured as a scheduled task.
+  em-dash variants) are auto-merged into the canonical name. Writes a three-column
+  Attendees table (Name, Email, Response) using the display names Softserve returns.
+  After meetings fire, pulls transcripts and recording links via Softserve. Transcripts
+  match the right occurrence by `createdDateTime` (no base64 timestamp decoding). Has
+  two modes: scheduled (runs without interaction, pulls post-meeting data from the
+  last workday automatically) and interactive (engineer picks what to pull). Trigger
+  phrases include "sync my meetings," "sync my calendar," "pull my meetings," "grab my
+  meetings," "update OOO," "update my meetings." Also runs on schedule when configured
+  as a scheduled task.
 version: 4.0.0
 ---
 
 # Promega Project Planner — Meeting Sync (Softserve)
 
-Pulls Outlook calendar events via the **Softserve MS365 MCP** (`mcp__softserve__*`, Microsoft Graph) and reconciles them with the engineer's workspace. Every run covers **Monday–Friday of the current workweek + Monday–Friday of next workweek**. Post-meeting data (transcript, attendance, recording link) is pulled in a separate window after meetings fire.
+Pulls Outlook calendar events via the **Softserve MS365 MCP** (`mcp__softserve__*`, Microsoft Graph) and reconciles them with the engineer's workspace. Every run covers **Monday–Friday of the current workweek + Monday–Friday of next workweek**. Post-meeting data (transcript, recording link) is pulled in a separate window after meetings fire.
 
-**Read `PLANNER_SCHEMA.md` at the plugin root before running this skill.** It defines the meeting folder schema, em-dash naming rule, `nameColor` hash (§ 3.5), `## Meeting Details` rows (Date, Time, Location, Organizer, Importance, MeetingId, LastSynced, **Recurrence**, **Recording**), and the enriched `## Attendees` table (Email, Response, Attended, Minutes). For deeper context (UI, architecture, build), `PLANNER_REFERENCE.md` is in the plugin root but not loaded by this skill.
+**Read `PLANNER_SCHEMA.md` at the plugin root before running this skill.** It defines the meeting folder schema, em-dash naming rule, `nameColor` hash (§ 3.5), `## Meeting Details` rows (Date, Time, Location, Organizer, Importance, MeetingId, LastSynced, **Recurrence**, **Recording**), and the `## Attendees` table layout (Name, Email, Response). For deeper context (UI, architecture, build), `PLANNER_REFERENCE.md` is in the plugin root but not loaded by this skill.
 
 ---
 
@@ -38,7 +39,7 @@ Before anything, determine whether this run is **scheduled** or **interactive**.
 **Interactive** — invoked by the engineer directly in chat. They can answer questions.
 
 The behavior branches in two places:
-1. **Post-meeting enrichment (transcript / attendance / recording)** — scheduled auto-pulls from last workday; interactive asks.
+1. **Post-meeting enrichment (transcript / recording)** — scheduled auto-pulls from last workday; interactive asks.
 2. **Cancelled-but-exists meeting folders** — scheduled deletes automatically; interactive asks per folder.
 
 All other behavior is the same across modes.
@@ -135,7 +136,7 @@ Each event in `response.value[]` has this structure (verified shape — referenc
 | `attendees[i].emailAddress.name` | string | Display name available now |
 | `attendees[i].status.response` | string | `"accepted"` / `"tentativelyAccepted"` / `"declined"` / `"none"` / `"organizer"` |
 | `attendees[i].type` | string | `"required"` / `"optional"` / `"resource"` |
-| `onlineMeeting.joinUrl` | string \| absent | Present only for Teams meetings. Used by post-meeting enrichment (transcript/attendance/recording). |
+| `onlineMeeting.joinUrl` | string \| absent | Present only for Teams meetings. Used by post-meeting enrichment (transcript / recording). |
 | `webLink` | string | Browser link to the event |
 | `categories` | array | Outlook categories |
 
@@ -374,10 +375,10 @@ links:
 
 ## Attendees
 
-| Email                     | Response  | Attended | Minutes |
-|---------------------------|-----------|----------|---------|
-| claire.moll@promega.com   | accepted  | —        | —       |
-| akim.nilausen@promega.com | tentative | —        | —       |
+| Name              | Email                     | Response  |
+|-------------------|---------------------------|-----------|
+| Claire Moll       | claire.moll@promega.com   | accepted  |
+| Akim Nilausen     | akim.nilausen@promega.com | tentative |
 
 ## Agenda
 
@@ -431,20 +432,22 @@ If `get-calendar-event(seriesMasterId)` fails (permission, deleted master, race)
 
 #### Attendees table on create
 
-When scaffolding a new meeting folder, the meeting hasn't fired yet (most common case). Write Response from the event payload, leave Attended/Minutes as `—`:
+Three columns: `Name`, `Email`, `Response`. Build one row per `event.attendees[i]`:
 
-| Email | Response | Attended | Minutes |
-|---|---|---|---|
-| `attendee.emailAddress.address` (lowercased) | mapped from `attendee.status.response` | `—` | `—` |
+| Column | Source |
+|---|---|
+| `Name` | `attendee.emailAddress.name` (display name). If absent, fall back to `—`. **Never fabricate a name from the email local-part** — leave `—` instead. |
+| `Email` | `attendee.emailAddress.address` (lowercased canonical form). |
+| `Response` | mapped from `attendee.status.response` (see mapping below). |
 
 Response value mapping:
 - `accepted` → `accepted`
 - `tentativelyAccepted` → `tentative`
 - `declined` → `declined`
-- `none` → `—`
+- `none` → `None`
 - `organizer` → `organizer`
 
-For meetings already in the past at scaffold time (rare — usually means engineer is back-filling), see TRANSCRIPT_INGEST.md Section B for the attendance-pull procedure that fills the last two columns.
+The organizer is also typically returned in `event.attendees`; if not, include them as a row using `organizer.emailAddress.name` / `.address` with Response = `organizer`.
 
 #### Agenda parsing
 
@@ -454,13 +457,13 @@ Read `event.body.content`. Strip HTML (tags, entities, signature/disclaimer bloc
 
 Use Edit, section by section (never full rewrite).
 
-**Preserve verbatim:** title line; description paragraph; `status`, `priority`, `stress`, `progress` in `## Planner Metadata`; any custom sections (`## Notes`, `## Decision Log`, `## Recent Summaries`); `## Transcript Summary` body if already populated; **`Attended` and `Minutes` columns in the Attendees table** when the post-meeting attendance pull already enriched them.
+**Preserve verbatim:** title line; description paragraph; `status`, `priority`, `stress`, `progress` in `## Planner Metadata`; any custom sections (`## Notes`, `## Decision Log`, `## Recent Summaries`); `## Transcript Summary` body if already populated.
 
-**Replace:** `## Meeting Details` body (rebuild fully; refresh `LastSynced`, `Date`, `Time`, `Location`, `Organizer`, `Importance`, and `Recurrence` row in case series rules changed). Keep `Recording` row if it already exists; don't strip it here. `## Attendees` body — refresh emails and **Response column** from the event, **preserve `Attended`/`Minutes`** per row by matching email. `## Agenda` body.
+**Replace:** `## Meeting Details` body (rebuild fully; refresh `LastSynced`, `Date`, `Time`, `Location`, `Organizer`, `Importance`, and `Recurrence` row in case series rules changed). Keep `Recording` row if it already exists; don't strip it here. `## Attendees` body — rebuild the three-column table (Name, Email, Response) from the event payload. `## Agenda` body.
 
 `color`, `isMeeting`, `MeetingId` are stable across syncs — don't change them.
 
-If a previous version of this skill wrote an Attendees table with only the `Email` column (no Response/Attended/Minutes), upgrade it during this update: rebuild the body with the new column layout, populate Response from the current event, leave Attended/Minutes as `—`. Old single-column tables should disappear over time.
+If a previous version of this skill wrote an Attendees table with a different column layout (single `Email` column, or the four-column Email/Response/Attended/Minutes layout from earlier soft-serve drafts), upgrade it in place: rebuild the body with the canonical `Name | Email | Response` columns and the current event data.
 
 ### 4.8 Reconciliation pass (every-meeting guarantee)
 
@@ -581,9 +584,9 @@ Apply the choice.
 
 ---
 
-## Step 7 — Post-meeting enrichment (transcripts + attendance + recordings)
+## Step 7 — Post-meeting enrichment (transcripts + recordings)
 
-After folders are scaffolded and OOO.md is updated, pull post-meeting data: transcript, attendance, and recording link.
+After folders are scaffolded and OOO.md is updated, pull post-meeting data: transcript and recording link.
 
 ### Scheduled mode — automatic
 
@@ -609,7 +612,7 @@ After folders are scaffolded and OOO.md is updated, pull post-meeting data: tran
 > "Meetings synced. What should I pull?"
 
 Options (**AskUserQuestion**):
-- **Last workday ([date])** — pull transcript + attendance + recording for every meeting from the most recent weekday before today (recommended)
+- **Last workday ([date])** — pull transcript + recording for every meeting from the most recent weekday before today (recommended)
 - **A specific meeting** — engineer picks one from a list of the last 10 synced
 - **A specific date or range** — engineer provides date(s) in their reply
 - **Skip post-meeting pull this run**
@@ -625,8 +628,7 @@ Based on the answer:
 For every queued meeting, follow `TRANSCRIPT_INGEST.md`:
 
 - **Section A (T1–T8)** — transcript ingest. Uses Softserve `get-calendar-event`, `parse-teams-url`, `list-meeting-transcripts`, `get-meeting-transcript-content`. Matches transcripts by `createdDateTime` (no base64 timestamp decoding).
-- **Section B** — attendance enrichment. Uses `list-meeting-attendance-reports`, `list-meeting-attendance-records`. Fills `Attended` and `Minutes` columns in `## Attendees`. Falls back gracefully on permission errors (engineer not the organizer).
-- **Section C** — recording link. Uses `list-meeting-recordings`. Appends `| Recording | <url> |` to `## Meeting Details` when a recording exists.
+- **Section B** — recording link. Uses `list-meeting-recordings`. Appends `| Recording | <url> |` to `## Meeting Details` when a recording exists.
 
 Don't load `TRANSCRIPT_INGEST.md` when the queue is empty (engineer chose Skip, or no last-workday meetings).
 
@@ -647,8 +649,6 @@ Deleted (cancelled existing): 1
 OOO entries added: 3
 Transcripts pulled: 4
 Transcripts skipped (already summarized): 1
-Attendance enriched: 4
-Attendance skipped (permission): 2
 Recording links added: 3
 ```
 
@@ -665,7 +665,6 @@ Concise summary to the engineer:
 > - **[N] cancelled** meetings skipped (or resolved per your choice)
 > - **OOO.md** updated with [N] entries
 > - **[N] transcripts** pulled and summarized
-> - **[N] meetings** got attendance data; **[N]** skipped (you weren't the organizer)
 > - **[N] recordings** linked
 >
 > Open the Visualizer from your Start menu or desktop shortcut to see the new cards."
