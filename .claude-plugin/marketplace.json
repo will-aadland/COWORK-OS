@@ -37,7 +37,7 @@
     {
       "name": "promega-engineering-os-softserve",
       "source": "./promega-engineering-os-softserve",
-      "description": "Softserve variant. Same workspace and commands as the standard plugin, but meeting-sync is rewired onto the Promega-internal Softserve MS365 connector (Microsoft Graph). Unlocks: four-column Attendees table (Email, Response, Attended, Minutes), Recurrence row from series-master fetches, Recording row from list-meeting-recordings, and simpler transcript matching by createdDateTime (no base64 ID decoding). Also adds get-current-user as a name-resolution fallback in /join-team. **Requires the Softserve MS365 connector enabled in Claude Customize.** If you don't have Softserve access, install the standard promega-engineering-os instead — workspace files written by either variant are forward-compatible. **Install only one of the two variants.**",
+      "description": "Softserve variant. Same workspace and commands as the standard plugin, but meeting-sync is rewired onto the Promega-internal Softserve MS365 connector (Microsoft Graph). Unlocks: three-column Attendees table (Name, Email, Response) populated with display names from Softserve, Recurrence row from series-master fetches, Recording row from list-meeting-recordings, and simpler transcript matching by createdDateTime (no base64 ID decoding). Also adds get-current-user as a name-resolution fallback in /join-team. **Requires the Softserve MS365 connector enabled in Claude Customize.** If you don't have Softserve access, install the standard promega-engineering-os instead — workspace files written by either variant are forward-compatible. **Install only one of the two variants.**",
       "version": "4.0.0",
       "author": {
         "name": "Will Aadland"
@@ -60,8 +60,7 @@
         "process-engineering",
         "validation",
         "outlook-sync",
-        "meetings",
-        "attendance"
+        "meetings"
       ]
     }
   ]

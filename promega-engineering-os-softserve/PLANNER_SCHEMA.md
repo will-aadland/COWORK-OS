@@ -150,11 +150,11 @@ isMeeting: true        # inside ## Planner Metadata
 
 ## Attendees
 
-| Email                     | Response  | Attended | Minutes |
-|---------------------------|-----------|----------|---------|
-| claire.moll@promega.com   | accepted  | yes      | 28      |
-| akim.nilausen@promega.com | tentative | no       | —       |
-| misha.dyskin@promega.com  | organizer | yes      | 30      |
+| Name              | Email                     | Response  |
+|-------------------|---------------------------|-----------|
+| Claire Moll       | claire.moll@promega.com   | accepted  |
+| Akim Nilausen     | akim.nilausen@promega.com | tentative |
+| Misha Dyskin      | misha.dyskin@promega.com  | organizer |
 
 ## Agenda
 - Topic 1
@@ -173,17 +173,16 @@ isMeeting: true        # inside ## Planner Metadata
 
 | Column | Source | When `—` is correct |
 |---|---|---|
-| `Email` | Event attendee email (lowercased) | never — the row exists for an email |
-| `Response` | `attendee.status.response` mapped (`accepted` / `tentative` / `declined` / `—` / `organizer`) | only when the event hasn't been fetched yet (rare) |
-| `Attended` | `yes`/`no` from `attendance.totalAttendanceInSeconds > 0` | meeting hasn't fired, attendance not yet pulled, or 403 from `list-meeting-attendance-records` (caller isn't the organizer) |
-| `Minutes` | `round(attendance.totalAttendanceInSeconds / 60)` | same conditions as `Attended` |
+| `Name` | `attendee.emailAddress.name` (display name from Microsoft Graph) | display name not returned by the source. **Never fabricate a name from the email local-part** — leave `—` instead. |
+| `Email` | `attendee.emailAddress.address` (lowercased canonical form) | never — the row exists for an email |
+| `Response` | `attendee.status.response` mapped (`accepted` / `tentative` / `declined` / `None` / `organizer`) | only when the event hasn't been fetched yet (rare) |
 
-Older single-column tables (`| Email |` only) from pre-v4 sync runs should be upgraded in place on the next sync — rebuild with the four-column layout and fill what's known.
+Older Attendees tables with different column layouts (single `| Email |`, or the four-column `Email / Response / Attended / Minutes` from earlier soft-serve drafts) are upgraded in place to the canonical `Name | Email | Response` layout on the next sync.
 
 ### 3.4 Safe-edit rules for meeting `CLAUDE.md`
 
 - `## Meeting Details` is a markdown table: preserve header + separator rows; rebuild only the body. Rows are: Date, Time, Location, Organizer, Importance, MeetingId, LastSynced, Recurrence (conditional), Recording (conditional). Other custom rows the engineer adds pass through unchanged.
-- `## Attendees` is a markdown table with **four columns** (Email, Response, Attended, Minutes): preserve header + separator rows; rebuild body. When refreshing during a sync, merge incoming Response from the event with **existing Attended/Minutes** keyed by email — don't clobber attendance data that was already enriched in a prior post-meeting pull.
+- `## Attendees` is a markdown table with **three columns** (Name, Email, Response): preserve header + separator rows; rebuild body. Built from the event payload — Name from `attendee.emailAddress.name`, Email from `attendee.emailAddress.address`, Response from `attendee.status.response`. Don't fabricate names; use `—` when the source returns no display name.
 - `## Transcript Summary` is free-form; safe to rewrite end-to-end.
 - `## Agenda` is a bullet list.
 - The Recurrence row is conditional — write it for instances of a recurring series; omit on single-instance meetings.
