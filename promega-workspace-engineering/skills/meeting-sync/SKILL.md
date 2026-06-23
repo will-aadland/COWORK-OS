@@ -190,6 +190,7 @@ links:
 | **Organizer** | Name (email) |
 | **Importance** | Normal |
 | **MeetingId** | [event.id] |
+| **JoinUrl** | [onlineMeeting.joinUrl — omit row if null/absent] |
 | **LastSynced** | [UTC ISO-8601 now] |
 | **Recurrence** | [phrase — see below; omit for singleInstance] |
 
@@ -230,7 +231,7 @@ Append ` until YYYY-MM-DD` (endDate) or ` (N occurrences)` (numbered) if bounded
 
 Use Edit section-by-section — never full rewrite.
 
-**Preserve:** title, description paragraph, `status`/`priority`/`stress`/`progress`, custom sections (`## Notes`, `## Decision Log`, `## Recent Summaries`), populated `## Transcript Summary`, existing `Recording` row.
+**Preserve:** title, description paragraph, `status`/`priority`/`stress`/`progress`, custom sections (`## Notes`, `## Decision Log`, `## Recent Summaries`), populated `## Transcript Summary`, existing `Recording` row, existing `JoinUrl` row.
 
 **Replace:** all `## Meeting Details` body (refresh LastSynced, Date, Time, Location, Organizer, Importance, Recurrence), `## Attendees` body, `## Agenda` body.
 
