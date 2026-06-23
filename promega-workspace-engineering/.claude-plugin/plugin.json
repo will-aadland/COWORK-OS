@@ -1,0 +1,9 @@
+{
+  "name": "promega-workspace-engineering",
+  "version": "5.0.0",
+  "description": "Promega engineering workspace for every Promega engineer — shaped for the Promega Project Planner V3 Visualizer (Windows Electron desktop app, filesystem-only). Creates a Personal Workspace with Projects/ and Meetings/ mounts plus optional engineer-selected add-ons (Change Controls/, DS Revisions/, Commissioning/, Documentation/, custom). Three-tier knowledge search (workspace → SharePoint → general), Outlook meeting sync via Microsoft 365 Plus with full transcript and recording support (Attendees Name+Email+Response, Recurrence, Recording link), ISA-88/FactoryTalk Batch reference tuned to FERMB, /save-summary and /save-note for knowledge capture, /add-project for scaffolding. Works for any Promega engineering team: process, automation, controls/instrumentation, validation, manufacturing, IT/OT. Uses the Microsoft 365 Plus connector — requires it enabled in Claude Customize.",
+  "author": {
+    "name": "Will Aadland"
+  },
+  "keywords": ["automation", "promega", "project-planner", "microsoft-365-plus", "sharepoint", "ISA-88", "FactoryTalk", "Logix5000", "Logix500", "fermentation", "batch", "change-control", "process-engineering", "validation", "EtQ", "PhaseManager", "PowerBI", "SQL", "SSRS", "outlook-sync", "meetings", "transcripts", "recordings", "OOO"]
+}

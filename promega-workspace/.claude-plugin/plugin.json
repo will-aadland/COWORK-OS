@@ -1,0 +1,9 @@
+{
+  "name": "promega-workspace",
+  "version": "1.0.0",
+  "description": "Promega Workspace for every Promega employee — shaped for the Promega Project Planner V3 Visualizer (Windows Electron desktop app, filesystem-only). Works for scientists, lab technicians, QA, manufacturing, operations, sales, HR, IT, and anyone at Promega who wants to organize their work in the Visualizer. Creates a Personal Workspace with Projects/ and Meetings/ mounts plus optional add-ons. Outlook meeting sync via Microsoft 365 Plus with full transcript and recording support. Three-tier knowledge search (workspace → SharePoint → general). /save-summary and /save-note for knowledge capture. /add-project for scaffolding new work. Uses the Microsoft 365 Plus connector — requires it enabled in Claude Customize.",
+  "author": {
+    "name": "Will Aadland"
+  },
+  "keywords": ["promega", "project-planner", "microsoft-365-plus", "sharepoint", "outlook-sync", "meetings", "transcripts", "recordings", "OOO", "workspace", "productivity", "notes", "summaries"]
+}

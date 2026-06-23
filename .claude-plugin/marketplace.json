@@ -4,41 +4,39 @@
     "name": "Will Aadland"
   },
   "metadata": {
-    "description": "Cowork OS marketplace — Claude Code plugins for Promega engineering teams. Ships two variants of the engineering plugin: a standard version that works for any engineer with the default Microsoft connector, and a Softserve variant that uses the Promega-internal Softserve MS365 MCP for richer meeting-sync data. Install only one.",
-    "version": "3.1.0"
+    "description": "Cowork OS marketplace — Claude Code plugins for Promega employees. Ships two plugins: a general workspace plugin for any Promega employee and an engineering-specific plugin for engineers. Both use the Microsoft 365 Plus connector for richer meeting-sync data.",
+    "version": "5.0.0"
   },
   "plugins": [
     {
-      "name": "promega-engineering-os",
-      "source": "./promega-engineering-os",
-      "description": "Standard version. Promega process and automation engineering workspace shaped for the Promega Project Planner V3 Visualizer. Scaffolds a Personal Workspace with Projects/ and Meetings/ mounts plus optional add-ons (Change Controls, DS Revisions, Commissioning, Documentation), three-tier knowledge search (workspace → SharePoint → general), Outlook meeting sync with transcript summarization, team-sharing workflow, and an ISA-88 / FactoryTalk Batch reference tuned to FERMB. Built and tested at the Arnold Center (RDC) for fermentation production support; works for any Promega engineering team on the Logix 5000/500 + FactoryTalk Batch / PhaseManager stack. Use this variant if you don't have access to the Softserve MS365 connector — it works with the default Microsoft connector. **Install only one of the two variants.**",
-      "version": "3.0.0",
+      "name": "promega-workspace",
+      "source": "./promega-workspace",
+      "description": "Promega Workspace for every Promega employee — shaped for the Promega Project Planner V3 Visualizer (Windows Electron desktop app, filesystem-only). Works for scientists, lab technicians, QA, manufacturing, operations, sales, HR, IT, and anyone at Promega who wants to organize their work in the Visualizer. Creates a Personal Workspace with Projects/ and Meetings/ mounts plus optional add-ons. Outlook meeting sync via Microsoft 365 Plus with full transcript and recording support. Three-tier knowledge search (workspace → SharePoint → general). /save-summary and /save-note for knowledge capture. /add-project for scaffolding new work. Requires the Microsoft 365 Plus connector enabled in Claude Customize.",
+      "version": "1.0.0",
       "author": {
         "name": "Will Aadland"
       },
-      "category": "engineering",
+      "category": "productivity",
       "tags": [
-        "automation",
         "promega",
         "project-planner",
+        "microsoft-365-plus",
         "sharepoint",
-        "ISA-88",
-        "FactoryTalk",
-        "Logix5000",
-        "fermentation",
-        "batch",
-        "change-control",
-        "process-engineering",
-        "validation",
         "outlook-sync",
-        "meetings"
+        "meetings",
+        "transcripts",
+        "recordings",
+        "workspace",
+        "productivity",
+        "notes",
+        "summaries"
       ]
     },
     {
-      "name": "promega-engineering-os-softserve",
-      "source": "./promega-engineering-os-softserve",
-      "description": "Softserve variant. Same workspace and commands as the standard plugin, but meeting-sync is rewired onto the Promega-internal Softserve MS365 connector (Microsoft Graph). Unlocks: three-column Attendees table (Name, Email, Response) populated with display names from Softserve, Recurrence row from series-master fetches, Recording row from list-meeting-recordings, and simpler transcript matching by createdDateTime (no base64 ID decoding). Also adds get-current-user as a name-resolution fallback in /join-team. **Requires the Softserve MS365 connector enabled in Claude Customize.** If you don't have Softserve access, install the standard promega-engineering-os instead — workspace files written by either variant are forward-compatible. **Install only one of the two variants.**",
-      "version": "4.0.0",
+      "name": "promega-workspace-engineering",
+      "source": "./promega-workspace-engineering",
+      "description": "Promega engineering workspace for every Promega engineer — shaped for the Promega Project Planner V3 Visualizer (Windows Electron desktop app, filesystem-only). Scaffolds a Personal Workspace with Projects/ and Meetings/ mounts plus optional add-ons (Change Controls, DS Revisions, Commissioning, Documentation). Outlook meeting sync via Microsoft 365 Plus with full transcript and recording support. Three-tier knowledge search (workspace → SharePoint → general). /save-summary and /save-note for knowledge capture. /add-project for scaffolding new work. Includes an ISA-88 / FactoryTalk Batch reference tuned to FERMB. Requires the Microsoft 365 Plus connector enabled in Claude Customize.",
+      "version": "5.0.0",
       "author": {
         "name": "Will Aadland"
       },
@@ -47,9 +45,7 @@
         "automation",
         "promega",
         "project-planner",
-        "softserve",
-        "ms365",
-        "microsoft-graph",
+        "microsoft-365-plus",
         "sharepoint",
         "ISA-88",
         "FactoryTalk",
@@ -60,7 +56,9 @@
         "process-engineering",
         "validation",
         "outlook-sync",
-        "meetings"
+        "meetings",
+        "transcripts",
+        "recordings"
       ]
     }
   ]
