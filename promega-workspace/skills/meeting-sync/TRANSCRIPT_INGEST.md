@@ -13,9 +13,38 @@ Skip loading this file entirely when Step 7 has nothing queued (scheduled run fo
 
 ---
 
-## Section A — Transcript ingest (T1–T8)
+## Quick Tool Reference
 
-For each meeting queued for transcript pull, work through T1–T8 in order. Stop early on "no transcripts" or "not a Teams meeting" — don't fail the whole sync.
+| Tool | Key input params | Key return fields |
+|------|----------------|-------------------|
+| `get-current-user` | _(none)_ | `id`, `displayName`, `mail` |
+| `get-calendar-event` | `eventId` | `onlineMeeting.joinUrl` (or `.joinWebUrl`) |
+| `parse-teams-url` | `url` | `onlineMeetingId` |
+| `list-meeting-transcripts` | `onlineMeetingId` | `[].{id, createdDateTime}` |
+| `get-meeting-transcript-content` | `onlineMeetingId`, `transcriptId`, `format` | raw WEBVTT string |
+| `list-meeting-recordings` | `onlineMeetingId` | `[].{id, createdDateTime, recordingContentUrl}` |
+
+All calls: prefix `mcp__Microsoft_365_Open_Beta__`. All are read-only; no permission prompts expected.
+
+---
+
+## Section A — Transcript ingest (T0–T8)
+
+For each meeting queued for transcript pull, work through T0–T8 in order. Stop early on "no transcripts" or "not a Teams meeting" — don't fail the whole sync.
+
+### T0. Verify connector
+
+```
+mcp__Microsoft_365_Open_Beta__get-current-user()
+   → {id, displayName, mail}
+```
+
+- **Success** → store `userId` for the session. Continue to T1.
+- **Error / not connected** →
+  - Scheduled: log `"enrichment skipped — Microsoft 365 Plus not connected"` and exit the entire file.
+  - Interactive: "I need Microsoft 365 Plus to pull transcripts. Enable it in Claude Customize → Connectors, then re-run."
+
+Run T0 once per enrichment session, not once per meeting.
 
 ### T1. Check for an existing transcript summary
 
@@ -26,33 +55,46 @@ Read the meeting's `CLAUDE.md` `## Transcript Summary` section. If already popul
 
 ### T2. Resolve the `onlineMeetingId`
 
-The meeting's `CLAUDE.md` `## Meeting Details` table has a `MeetingId` row — that's the Outlook event ID, not the Teams online-meeting ID. They're different. Convert:
+**Step 2a — Get the join URL.**
+
+Check `## Meeting Details` in the meeting's `CLAUDE.md` for a `JoinUrl` row:
+
+- **`JoinUrl` row present and non-empty** → use it directly. Skip the API call below.
+- **`JoinUrl` row absent or blank** → fetch it:
+
+  ```
+  mcp__Microsoft_365_Open_Beta__get-calendar-event(eventId=<MeetingId from CLAUDE.md>)
+      → check .onlineMeeting.joinUrl first, then .onlineMeeting.joinWebUrl
+  ```
+
+  If both are null/empty, or `onlineMeeting` is absent entirely → not a Teams meeting (in-person, Zoom, external). Skip with reason `no online meeting`.
+
+The `JoinUrl` fast-path eliminates this API call for any meeting that was scaffolded by meeting-sync (which stores `JoinUrl` at creation time). The fallback handles legacy folders or manual entries.
+
+**Step 2b — Convert join URL → `onlineMeetingId`.**
 
 ```
-mcp__Microsoft_365_Open_Beta__get-calendar-event(eventId=MeetingId)
-   → response.onlineMeeting.joinUrl       (or .joinWebUrl on some Graph versions)
+mcp__Microsoft_365_Open_Beta__parse-teams-url(url=<joinUrl>)
+    → onlineMeetingId  (also returns tenantId, chatId — not needed here)
 ```
 
-- If `onlineMeeting` is absent or `joinUrl` is empty/null → not a Teams meeting (in-person, Zoom, external). Skip with reason `no online meeting`.
+`parse-teams-url` handles all URL-encoding edge cases (`meet/...` lite form, `meetup-join/...` full form, percent-encoded chars). Never construct the ID by hand from the URL — it will break on encoded characters.
 
-Then convert the join URL to the canonical online-meeting ID:
-
-```
-mcp__Microsoft_365_Open_Beta__parse-teams-url(url=joinUrl)
-   → returns onlineMeetingId (and tenantId, chatId, etc.)
-```
-
-`parse-teams-url` handles all the URL-encoding edge cases (lite `meet/...` vs full `meetup-join/...` form, percent-encoded chars). Don't construct the URI manually.
+Store `onlineMeetingId`; it's reused in T3, T5, and B1.
 
 ### T3. List available transcripts
 
 ```
-mcp__Microsoft_365_Open_Beta__list-meeting-transcripts(onlineMeetingId)
+mcp__Microsoft_365_Open_Beta__list-meeting-transcripts(onlineMeetingId=<onlineMeetingId>)
    → array of {id, createdDateTime, transcriptContentUrl, meetingOrganizer, ...}
 ```
 
-- **Empty array** → meeting wasn't recorded. Log "no transcript available — meeting not recorded" and skip to the next meeting. Don't retry; don't error the whole sync.
-- **Permission error** (403/404) → engineer doesn't have access (most common when they didn't organize and weren't a presenter). Log "no transcript access" and skip.
+- **Non-empty array** → proceed to T4.
+- **Empty array** → meeting wasn't recorded or transcription wasn't enabled. Log `"no transcript — meeting not recorded"` and skip to next meeting. Don't retry.
+- **403 Forbidden** → engineer doesn't have transcript access (most common when they weren't the organizer or a presenter). Log `"no transcript access (403)"` and skip.
+- **404 Not Found** → `onlineMeetingId` didn't resolve to a real Teams meeting. Log `"meeting not found (404)"` and skip.
+
+Never abort the full sync on a per-meeting failure here.
 
 ### T4. Match the right transcript to this occurrence
 
@@ -69,12 +111,14 @@ Matching:
 
 ```
 mcp__Microsoft_365_Open_Beta__get-meeting-transcript-content(
-    onlineMeetingId=...,
+    onlineMeetingId=<onlineMeetingId>,
     transcriptId=<matched id from T4>,
     format="text/vtt"
 )
    → raw WEBVTT text
 ```
+
+If `format` is rejected by the tool, try omitting it — some connector versions return WEBVTT by default.
 
 Save the converted markdown to `[meeting folder]/Transcripts/transcript.md`. One transcript per meeting folder; filename is `transcript.md` (date/title already encoded in the folder name).
 
