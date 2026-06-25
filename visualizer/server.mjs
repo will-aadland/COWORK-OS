@@ -1,0 +1,1547 @@
+/**
+ * Promega Project Planner V3 — server.mjs
+ * Node.js HTTP server (no Express). Serves the V3 frontend and all API routes.
+ */
+
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFile, spawn } from 'node:child_process';
+import chokidar from 'chokidar';
+import { parseClaudeMd, parseContextMd } from './lib/fs-parser.mjs';
+import { writeClaudeMd, writeContextMdNotes, writeContextMd } from './lib/fs-writer.mjs';
+import {
+  buildTree, readFileContent, writeFileContent, mkdirAt, deleteAt, moveAt, renameAt,
+  resolveInsideRoot, streamRawFile,
+} from './lib/fs-ops.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+// Per-user data dir (config.json, tasks.json, ui-state.json) is overridable via
+// the COWORK_DATA_DIR env var. The Electron wrapper sets this to the OS userData
+// directory in production so install/uninstall cycles never wipe the user's
+// configured paths. In dev, no env var → state lives next to server.mjs.
+const DATA_DIR = process.env.COWORK_DATA_DIR
+  ? process.env.COWORK_DATA_DIR
+  : __dirname;
+try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+
+const CFG_FILE = path.join(DATA_DIR, 'config.json');
+const EMPTY_CFG = {
+  coworkRoot: '',
+  port: 3000,
+  sections: { files: '', meetings: '', projects: [] },
+  priorityColors: {},
+};
+let cfg;
+try {
+  cfg = JSON.parse(fs.readFileSync(CFG_FILE, 'utf8'));
+} catch (e) {
+  // No config yet — first run on a fresh install. Boot with empty defaults so
+  // the UI loads and the user can configure paths via the Settings panel.
+  console.warn('No config.json at', CFG_FILE, '— starting with empty defaults');
+  cfg = { ...EMPTY_CFG };
+  try { fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2), 'utf8'); } catch {}
+}
+
+const COWORK_ROOT = cfg.coworkRoot || '';
+const PORT = cfg.port || 3000;
+const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
+const UI_STATE_FILE = path.join(DATA_DIR, 'ui-state.json');
+const HTML_FILE = path.join(__dirname, 'Promega.Project.Planner.V3.html');
+
+const MEETING_RE = /^\d{4}-\d{2}-\d{2}\s+—\s+/;
+
+const DEFAULT_PRIORITY_COLORS = {
+  high:      '#d43535',
+  medium:    '#d49f35',
+  low:       '#35d443',
+  completed: '#35d4ce',
+};
+
+function readCfg() {
+  try { return JSON.parse(fs.readFileSync(CFG_FILE, 'utf8')); }
+  catch { return cfg; }
+}
+
+// Returns section config, reading config.json fresh each call so UI changes take effect without restart.
+// When no coworkRoot is configured (fresh install / first run), returns empty
+// strings and an empty mounts list — the UI shows the empty state and prompts
+// the user to configure paths in Settings.
+function getSectionConfig() {
+  const latestCfg = readCfg();
+  const root = latestCfg.coworkRoot || COWORK_ROOT || '';
+  const s = latestCfg.sections || {};
+  if (!root && !s.files && !s.meetings && !(Array.isArray(s.projects) && s.projects.length)) {
+    return { files: '', meetings: '', projects: [] };
+  }
+  return {
+    files: s.files || root,
+    meetings: s.meetings || (root ? path.join(root, 'Meetings') : ''),
+    projects: Array.isArray(s.projects) && s.projects.length > 0
+      ? s.projects
+      : (root ? [path.join(root, 'Projects'), path.join(root, 'Change Controls')] : []),
+  };
+}
+
+function getPriorityColors() {
+  const latestCfg = readCfg();
+  const pc = latestCfg.priorityColors || {};
+  return {
+    high:      pc.high      || DEFAULT_PRIORITY_COLORS.high,
+    medium:    pc.medium    || DEFAULT_PRIORITY_COLORS.medium,
+    low:       pc.low       || DEFAULT_PRIORITY_COLORS.low,
+    completed: pc.completed || DEFAULT_PRIORITY_COLORS.completed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SSE clients
+// ---------------------------------------------------------------------------
+const sseClients = new Set();
+
+// ---------------------------------------------------------------------------
+// Utility functions
+// ---------------------------------------------------------------------------
+
+function jsonResp(res, data, status = 200) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.end(body);
+}
+
+function errResp(res, msg, status = 400) {
+  jsonResp(res, { error: msg }, status);
+}
+
+async function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      try { resolve(raw ? JSON.parse(raw) : {}); }
+      catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function timeSummariesClaudeMd() {
+  return `# Time Summaries
+
+This folder contains periodic work summaries generated by the Promega Project Planner.
+
+## File Naming Convention
+
+Files are named: \`YYYY-MM-DD – YYYY-MM-DD Summary.md\`
+
+The date range reflects the period covered by the summary.
+
+## Summary Structure
+
+Each summary includes:
+- Per-project status, goals, challenges, and questions for manager
+- Meeting log for the period
+- Check-in prep sections: accomplishments, blockers, goals, action items, questions for manager, risks, resource needs, and growth/development notes
+
+## Usage
+
+These summaries are generated automatically from the Project Planner app at localhost:3000.
+Open any file to review a past period, or use the Summaries tab in the planner to create and manage summaries.
+`;
+}
+
+function safeRead(filePath) {
+  try { return fs.readFileSync(filePath, 'utf8'); } catch { return null; }
+}
+
+/** djb2 hash → stable positive integer from string */
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) & 0x7fffffff;
+  return h;
+}
+
+/** Recursively build a file tree node. filesRoot is used for the display name of the root node. */
+const SKIP_NAMES = new Set(['.claude', '.git', 'node_modules', 'desktop.ini', '.DS_Store']);
+const SKIP_EXTS = new Set(['.skill']);
+
+function buildFileTree(dirPath, relBase, filesRoot) {
+  const rootForName = filesRoot || COWORK_ROOT;
+  const name = relBase === '' ? path.basename(rootForName) : path.basename(dirPath);
+  const node = { name, type: 'directory', path: relBase, children: [] };
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  } catch {
+    return node;
+  }
+
+  for (const entry of entries) {
+    if (SKIP_NAMES.has(entry.name)) continue;
+    const entryRel = relBase ? `${relBase}/${entry.name}` : entry.name;
+    const entryAbs = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      node.children.push(buildFileTree(entryAbs, entryRel, filesRoot));
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase().replace('.', '');
+      if (SKIP_EXTS.has('.' + ext)) continue;
+      let size = 0;
+      let modified = '';
+      try {
+        const stat = fs.statSync(entryAbs);
+        size = stat.size;
+        modified = stat.mtime.toISOString();
+      } catch {}
+      node.children.push({ name: entry.name, type: 'file', path: entryRel, ext, size, modified });
+    }
+  }
+
+  // Sort: directories first, then files, both alphabetical
+  node.children.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return node;
+}
+
+/**
+ * List every `.md` file in a single subfolder with card-ready metadata.
+ * Used by `/api/:scope/:folder/notes-list` and `.../chats-list`.
+ * Returns [{ name, path, title, preview, modified, lines }, …] sorted by
+ * most recently modified first.
+ */
+function listMarkdownCards(rootDir, subdir) {
+  const subPath = path.join(rootDir, subdir);
+  if (!fs.existsSync(subPath)) return [];
+  const cards = [];
+  let entries;
+  try { entries = fs.readdirSync(subPath, { withFileTypes: true }); } catch { return []; }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue;
+    const abs = path.join(subPath, entry.name);
+    let raw = '';
+    let modified = '';
+    try {
+      raw = fs.readFileSync(abs, 'utf8');
+      modified = fs.statSync(abs).mtime.toISOString();
+    } catch { continue; }
+    const titleMatch = raw.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1].trim() : entry.name.replace(/\.md$/i, '');
+    // Preview = first 140 non-heading, non-empty chars from lines after the title.
+    const afterTitle = titleMatch ? raw.slice(titleMatch.index + titleMatch[0].length) : raw;
+    const preview = afterTitle
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#'))
+      .join(' ')
+      .slice(0, 140);
+    const lines = raw.split('\n').length;
+    cards.push({
+      name: entry.name,
+      path: `${subdir}/${entry.name}`,
+      title,
+      preview,
+      modified,
+      lines,
+    });
+  }
+  cards.sort((a, b) => (b.modified || '').localeCompare(a.modified || ''));
+  return cards;
+}
+
+// Subfolder names used to archive completed projects/CCs. The first entry is
+// the canonical name used for new archives; later entries are legacy names we
+// still recognize when reading (and that startup migration consolidates into
+// the canonical one).
+const ARCHIVE_FOLDER = 'Completed';
+const LEGACY_ARCHIVE_FOLDERS = ['Completed Projects', 'Completed CCs'];
+
+/** Find a project folder — searches all configured project mounts (active + archive subfolders) */
+function findProjectFolder(folder) {
+  for (const mount of getSectionConfig().projects) {
+    const active = path.join(mount, folder);
+    if (fs.existsSync(active)) return { dir: active, folderType: 'projects' };
+    for (const archiveName of [ARCHIVE_FOLDER, ...LEGACY_ARCHIVE_FOLDERS]) {
+      const archived = path.join(mount, archiveName, folder);
+      if (fs.existsSync(archived)) return { dir: archived, folderType: 'completed-project' };
+    }
+  }
+  return null;
+}
+
+/** Move a folder, falling back to copy+delete for cross-drive scenarios */
+function moveFolder(src, dest) {
+  try {
+    fs.renameSync(src, dest);
+  } catch {
+    fs.cpSync(src, dest, { recursive: true });
+    fs.rmSync(src, { recursive: true, force: true });
+  }
+}
+
+/** Template: CLAUDE.md for new projects. Description goes between the title
+ * and the metadata block so it can be edited from the Details tab directly. */
+function claudeMdTemplate(name, description, priority, color, startDate, endDate) {
+  const descBlock = description && description.trim() ? `${description.trim()}\n\n` : '';
+  return `# ${name}
+
+${descBlock}## Planner Metadata
+status: on-track
+priority: ${priority || 'medium'}
+startDate: ${startDate || ''}
+endDate: ${endDate || ''}
+progress: 0
+stress: 0
+color: ${color || '#3b82f6'}
+links:
+`;
+}
+
+/** Deterministic color from a meeting name — ported from the frontend's
+ * `nameColor()` so meetings with the same title always get the same color
+ * regardless of when they were created. Golden-angle hue with hsl 65/52. */
+function nameColor(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i)) | 0;
+  const hue = (Math.abs(h) * 137.508) % 360;
+  const s = 0.65, l = 0.52;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((hue / 60) % 2 - 1));
+  const m2 = l - c / 2;
+  let r, g, b;
+  if (hue < 60)       { r = c; g = x; b = 0; }
+  else if (hue < 120) { r = x; g = c; b = 0; }
+  else if (hue < 180) { r = 0; g = c; b = x; }
+  else if (hue < 240) { r = 0; g = x; b = c; }
+  else if (hue < 300) { r = x; g = 0; b = c; }
+  else                { r = c; g = 0; b = x; }
+  const hex = v => Math.round((v + m2) * 255).toString(16).padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}
+
+/** Template: CLAUDE.md for new meetings. Same structure as the project template
+ * plus Meeting Details / Attendees / Agenda / Transcript Summary sections. */
+function claudeMdTemplateMeeting(title, date) {
+  return `# ${title}
+
+## Planner Metadata
+status: on-track
+priority: medium
+startDate: ${date || ''}
+endDate: ${date || ''}
+progress: 0
+stress: 0
+color: ${nameColor(title || 'Meeting')}
+isMeeting: true
+links:
+
+## Meeting Details
+
+| Field | Value |
+|-------|-------|
+| **Date** | ${date || ''} |
+| **Time** | |
+| **Location** | |
+| **Organizer** | |
+| **Recurrence** | One-time |
+| **Importance** | Normal |
+
+## Attendees
+
+| Name | Email | Response |
+|------|-------|----------|
+
+## Agenda
+
+## Transcript Summary
+
+`;
+}
+
+/** List of subfolders to scaffold for every project (not meetings). */
+const PROJECT_SUBFOLDERS = ['Notes', 'Chat Summaries', 'Files'];
+/** List of subfolders to scaffold for every meeting.
+ * Chat Summaries is intentionally absent — it's a project-only feature. */
+const MEETING_SUBFOLDERS = ['Notes', 'Files', 'Transcripts'];
+
+function ensureSubfolders(folderDir, names) {
+  for (const n of names) {
+    const p = path.join(folderDir, n);
+    if (!fs.existsSync(p)) {
+      try { fs.mkdirSync(p, { recursive: true }); }
+      catch (e) { console.warn('ensureSubfolders failed for', p, ':', e.message); }
+    }
+  }
+}
+
+/** Non-destructive rename — turns `path.ext` into `path.ext.bak` without overwriting. */
+function renameToBak(absPath) {
+  if (!fs.existsSync(absPath)) return false;
+  let dest = absPath + '.bak';
+  let i = 1;
+  while (fs.existsSync(dest)) dest = `${absPath}.bak.${i++}`;
+  try { fs.renameSync(absPath, dest); return true; }
+  catch (e) { console.warn('renameToBak failed for', absPath, ':', e.message); return false; }
+}
+
+/** Auto-migrate a project folder to the new structure. Non-destructive: old
+ * files get `.bak` suffix instead of deletion. Idempotent. */
+function autoMigrateProject(folderDir, parsedClaude) {
+  try {
+    // 1. Merge description.md into CLAUDE.md description paragraph if CLAUDE.md lacks one.
+    const descPath = path.join(folderDir, 'description.md');
+    const claudePath = path.join(folderDir, 'CLAUDE.md');
+    if (fs.existsSync(descPath) && fs.existsSync(claudePath)) {
+      const descRaw = fs.readFileSync(descPath, 'utf8');
+      // Strip the leading "# Name\n\n" that the old scaffold added.
+      const descBody = descRaw.replace(/^#[^\n]*\n+/, '').trim();
+      const currentDesc = (parsedClaude?.description || '').trim();
+      if (descBody && !currentDesc) {
+        const existing = fs.readFileSync(claudePath, 'utf8');
+        const rewritten = writeClaudeMd(existing, { description: descBody });
+        fs.writeFileSync(claudePath, rewritten, 'utf8');
+      }
+      renameToBak(descPath);
+    }
+    // 2. Scaffold subfolders if missing.
+    ensureSubfolders(folderDir, PROJECT_SUBFOLDERS);
+    // 3. Retire auto-generated Notes/notes.md stub if it's effectively empty.
+    const notesStub = path.join(folderDir, 'Notes', 'notes.md');
+    if (fs.existsSync(notesStub)) {
+      const raw = fs.readFileSync(notesStub, 'utf8').trim();
+      const name = parsedClaude?.name || path.basename(folderDir);
+      const stubSig = `# ${name} — Notes`;
+      if (raw === stubSig || raw === '' || raw === `${stubSig}\n`) renameToBak(notesStub);
+    }
+    // 4. Retire MEMORY.md — nothing consumes it.
+    renameToBak(path.join(folderDir, 'MEMORY.md'));
+  } catch (e) { console.warn('autoMigrateProject failed:', e.message); }
+}
+
+/** Auto-migrate a meeting folder to the new structure (CLAUDE.md-based). */
+function autoMigrateMeeting(folderDir, parsedContext) {
+  try {
+    const claudePath = path.join(folderDir, 'CLAUDE.md');
+    const contextPath = path.join(folderDir, 'context.md');
+    const descPath = path.join(folderDir, 'description.md');
+
+    // 1. If CLAUDE.md is missing but context.md exists, build CLAUDE.md from it.
+    if (!fs.existsSync(claudePath) && fs.existsSync(contextPath)) {
+      const title = parsedContext?.title || path.basename(folderDir);
+      const descRaw = fs.existsSync(descPath) ? fs.readFileSync(descPath, 'utf8') : '';
+      const descBody = descRaw.replace(/^#[^\n]*\n+/, '').trim();
+      let content = claudeMdTemplateMeeting(title, parsedContext?.date || '');
+      const updates = {
+        description: descBody,
+        startTime: parsedContext?.startTime || '',
+        endTime: parsedContext?.endTime || '',
+        location: parsedContext?.location || '',
+        organizer: parsedContext?.organizer || '',
+        meetingId: parsedContext?.meetingId || '',
+        lastSynced: parsedContext?.lastSynced || '',
+        attendees: parsedContext?.attendees || [],
+        agenda: parsedContext?.agenda || '',
+        transcriptSummary: parsedContext?.transcriptSummary || '',
+      };
+      content = writeClaudeMd(content, updates);
+      fs.writeFileSync(claudePath, content, 'utf8');
+      renameToBak(contextPath);
+      if (fs.existsSync(descPath)) renameToBak(descPath);
+    } else if (fs.existsSync(descPath) && fs.existsSync(claudePath) && !(parsedContext?.description)) {
+      // CLAUDE.md exists but we never migrated the description into it.
+      const descRaw = fs.readFileSync(descPath, 'utf8');
+      const descBody = descRaw.replace(/^#[^\n]*\n+/, '').trim();
+      if (descBody) {
+        const existing = fs.readFileSync(claudePath, 'utf8');
+        const rewritten = writeClaudeMd(existing, { description: descBody });
+        fs.writeFileSync(claudePath, rewritten, 'utf8');
+      }
+      renameToBak(descPath);
+    }
+
+    // 2. Scaffold subfolders if missing.
+    ensureSubfolders(folderDir, MEETING_SUBFOLDERS);
+
+    // 2b. Remove the legacy "Chat Summaries/" folder (meetings don't use it).
+    //     Only if empty — if the user ever put something in there, leave it for them.
+    const chatsDir = path.join(folderDir, 'Chat Summaries');
+    if (fs.existsSync(chatsDir)) {
+      try {
+        const entries = fs.readdirSync(chatsDir);
+        if (entries.length === 0) fs.rmdirSync(chatsDir);
+      } catch {}
+    }
+
+    // 3. Retire Notes/notes.md stub.
+    const notesStub = path.join(folderDir, 'Notes', 'notes.md');
+    if (fs.existsSync(notesStub)) {
+      const raw = fs.readFileSync(notesStub, 'utf8').trim();
+      const name = parsedContext?.title || path.basename(folderDir);
+      const stubSig = `# ${name} — Notes`;
+      if (raw === stubSig || raw === '' || raw === `${stubSig}\n`) renameToBak(notesStub);
+    }
+  } catch (e) { console.warn('autoMigrateMeeting failed:', e.message); }
+}
+
+// ---------------------------------------------------------------------------
+// Request handler
+// ---------------------------------------------------------------------------
+async function requestListener(req, res) {
+  try {
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const pathname = url.pathname;
+  const method = req.method.toUpperCase();
+
+  // CORS preflight
+  if (method === 'OPTIONS') {
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+    return res.end();
+  }
+
+  // -------------------------------------------------------------------------
+  // SSE: /api/watch
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/watch') {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.write(': connected\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+    return;
+  }
+
+  // -------------------------------------------------------------------------
+  // Open a file in its native Windows-associated app
+  // GET /api/open-externally?scope=project|meeting|files&folder=<name>&path=<rel>
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/open-externally') {
+    const scope = url.searchParams.get('scope') || 'files';
+    const folder = url.searchParams.get('folder') || '';
+    const rel = url.searchParams.get('path') || '';
+    let root = '';
+    if (scope === 'project') {
+      const f = findProjectFolder(folder);
+      if (!f) return errResp(res, 'Project not found', 404);
+      root = f.dir;
+    } else if (scope === 'meeting') {
+      root = path.join(getSectionConfig().meetings, folder);
+      if (!fs.existsSync(root)) return errResp(res, 'Meeting not found', 404);
+    } else {
+      root = getSectionConfig().files;
+    }
+    let abs;
+    try { abs = resolveInsideRoot(root, rel); }
+    catch { return errResp(res, 'Invalid path', 403); }
+    if (!fs.existsSync(abs)) return errResp(res, 'File not found', 404);
+    // Windows: `start "" "C:\path"` opens the file in its associated app.
+    // Use cmd.exe directly with the /c flag; the empty "" is the title arg that `start` requires.
+    execFile('cmd.exe', ['/c', 'start', '""', abs], { windowsHide: true }, (err) => {
+      if (err) console.warn('[open-externally] error:', err.message);
+    });
+    return jsonResp(res, { ok: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // GET /api/show-in-folder?scope=project|meeting|files&folder=<name>&path=<rel>
+  // Reveals a path in Windows File Explorer.
+  //   - Empty/dir path  → opens the folder itself in Explorer.
+  //   - File path       → opens the parent folder with the file pre-selected
+  //                       (`explorer.exe /select,<file>`).
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/show-in-folder') {
+    const scope = url.searchParams.get('scope') || 'files';
+    const folder = url.searchParams.get('folder') || '';
+    const rel = url.searchParams.get('path') || '';
+    let root = '';
+    if (scope === 'project') {
+      const f = findProjectFolder(folder);
+      if (!f) return errResp(res, 'Project not found', 404);
+      root = f.dir;
+    } else if (scope === 'meeting') {
+      root = path.join(getSectionConfig().meetings, folder);
+      if (!fs.existsSync(root)) return errResp(res, 'Meeting not found', 404);
+    } else {
+      root = getSectionConfig().files;
+    }
+    let abs;
+    try { abs = rel ? resolveInsideRoot(root, rel) : root; }
+    catch { return errResp(res, 'Invalid path', 403); }
+    if (!abs || !fs.existsSync(abs)) return errResp(res, 'Not found', 404);
+    let isDir = false;
+    try { isDir = fs.statSync(abs).isDirectory(); } catch {}
+    if (isDir) {
+      execFile('cmd.exe', ['/c', 'start', '""', abs], { windowsHide: true }, (err) => {
+        if (err) console.warn('[show-in-folder] error:', err.message);
+      });
+    } else {
+      // explorer.exe /select,<path> opens the parent folder and highlights the file.
+      // Use spawn so /select,<abs> is delivered as a single argument; explorer exits
+      // with a non-zero code even on success, so don't rely on the exit handler.
+      const child = spawn('explorer.exe', [`/select,${abs}`], { windowsHide: true, detached: true, stdio: 'ignore' });
+      child.on('error', (err) => console.warn('[show-in-folder] explorer error:', err.message));
+      child.unref();
+    }
+    return jsonResp(res, { ok: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // Launch Claude Desktop (the Cowork app). Uses the `claude://` URL protocol
+  // that Claude Desktop registers — works for the Microsoft Store install
+  // (which lives in protected WindowsApps) and any future installer paths.
+  // Falls back to probing common file locations for older installs.
+  // -------------------------------------------------------------------------
+  if (method === 'POST' && pathname === '/api/open-claude') {
+    // Primary: shell-handle the registered claude:// URL protocol.
+    execFile('cmd.exe', ['/c', 'start', '""', 'claude://'], { windowsHide: true }, (err) => {
+      if (err) console.warn('[open-claude] protocol launch error:', err.message);
+    });
+
+    // Bonus: also try a few file-path fallbacks asynchronously in case the
+    // protocol isn't registered (older Claude Desktop builds).
+    const candidates = [
+      path.join(process.env.LOCALAPPDATA || '', 'AnthropicClaude', 'Claude.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Claude', 'Claude.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs', 'AnthropicClaude', 'Claude.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'AnthropicClaude', 'Claude.exe'),
+      path.join(process.env.PROGRAMFILES || '', 'Claude', 'Claude.exe'),
+    ];
+    const exe = candidates.find(p => p && fs.existsSync(p));
+    return jsonResp(res, { ok: true, method: 'protocol', fallbackExe: exe || null });
+  }
+
+  // -------------------------------------------------------------------------
+  // Native folder picker (Windows PowerShell FolderBrowserDialog)
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/browse/folder') {
+    const initialPath = url.searchParams.get('initialPath') || COWORK_ROOT;
+    // Use a hidden TopMost owner form so the dialog surfaces above the browser window.
+    const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.Opacity = 0
+$owner.Size = New-Object System.Drawing.Size(1,1)
+$owner.Show()
+$owner.Activate()
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = "Select a folder"
+$d.ShowNewFolderButton = $true
+$d.SelectedPath = "${initialPath.replace(/"/g, '')}"
+$r = $d.ShowDialog($owner)
+$owner.Dispose()
+if ($r -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }
+`.trim();
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    try {
+      const selected = await new Promise((resolve) => {
+        execFile('powershell.exe', ['-Sta', '-NoProfile', '-EncodedCommand', encoded],
+          { timeout: 120000 },
+          (_err, stdout, stderr) => {
+            if (stderr) console.warn('[browse/folder] ps stderr:', stderr.trim());
+            resolve((stdout || '').trim() || null);
+          }
+        );
+      });
+      return jsonResp(res, { path: selected });
+    } catch (e) {
+      console.error('[browse/folder] error:', e.message);
+      return jsonResp(res, { path: null });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Config API
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/config') {
+    return jsonResp(res, { ...getSectionConfig(), priorityColors: getPriorityColors() });
+  }
+
+  if (method === 'POST' && pathname === '/api/config') {
+    const body = await readBody(req);
+    console.log('[config] POST received:', JSON.stringify(body));
+    let latestCfg;
+    try {
+      latestCfg = JSON.parse(fs.readFileSync(CFG_FILE, 'utf8'));
+    } catch {
+      latestCfg = { ...cfg };
+    }
+    // Warn about non-existent paths but do not block the save — paths may be
+    // temporarily unavailable (network drives, OneDrive sync, etc.)
+    if (body.files && !fs.existsSync(body.files)) console.warn('[config] files path not found:', body.files);
+    if (body.meetings && !fs.existsSync(body.meetings)) console.warn('[config] meetings path not found:', body.meetings);
+    if (Array.isArray(body.projects)) {
+      body.projects.forEach(p => { if (!fs.existsSync(p)) console.warn('[config] project path not found:', p); });
+    }
+
+    // Only overwrite sections fields that were explicitly sent. Callers may post
+    // just priorityColors without providing section paths (and vice versa).
+    const existingSections = latestCfg.sections || {};
+    const haveSectionUpdate = body.files !== undefined || body.meetings !== undefined || body.projects !== undefined;
+    if (haveSectionUpdate) {
+      // Defensive guard: never accept an empty projects array — that's almost
+      // always an autosave race or accidental UI delete and it bricks the app
+      // until the user manually edits config.json. Require an explicit
+      // confirmRemoveAllProjects flag to actually empty the list.
+      let nextProjects;
+      if (Array.isArray(body.projects)) {
+        const filtered = body.projects.filter(p => typeof p === 'string' && p.trim());
+        const existing = existingSections.projects || [];
+        if (filtered.length === 0 && existing.length > 0 && !body.confirmRemoveAllProjects) {
+          console.warn('[config] refused to save: empty projects list (would orphan', existing.length, 'mounts). Pass confirmRemoveAllProjects:true to override.');
+          return errResp(res, 'Refusing to clear all project mounts without confirmRemoveAllProjects:true', 400);
+        }
+        nextProjects = filtered;
+      } else {
+        nextProjects = existingSections.projects || [];
+      }
+      latestCfg.sections = {
+        files: body.files !== undefined ? body.files : (existingSections.files || ''),
+        meetings: body.meetings !== undefined ? body.meetings : (existingSections.meetings || ''),
+        projects: nextProjects,
+      };
+    } else {
+      latestCfg.sections = existingSections;
+    }
+
+    if (body.priorityColors && typeof body.priorityColors === 'object') {
+      const pc = latestCfg.priorityColors || {};
+      latestCfg.priorityColors = {
+        high:      body.priorityColors.high      || pc.high      || DEFAULT_PRIORITY_COLORS.high,
+        medium:    body.priorityColors.medium    || pc.medium    || DEFAULT_PRIORITY_COLORS.medium,
+        low:       body.priorityColors.low       || pc.low       || DEFAULT_PRIORITY_COLORS.low,
+        completed: body.priorityColors.completed || pc.completed || DEFAULT_PRIORITY_COLORS.completed,
+      };
+    }
+    fs.writeFileSync(CFG_FILE, JSON.stringify(latestCfg, null, 2), 'utf8');
+    console.log('[config] saved');
+
+    // Add new paths to the watcher and create the Completed/ archive subfolder.
+    const newCfg = getSectionConfig();
+    [newCfg.files, newCfg.meetings, ...newCfg.projects].forEach(p => {
+      try { watcher.add(p); } catch {}
+    });
+    for (const mount of newCfg.projects) {
+      const archiveDir = path.join(mount, ARCHIVE_FOLDER);
+      try {
+        if (!fs.existsSync(archiveDir)) fs.mkdirSync(archiveDir, { recursive: true });
+      } catch {}
+    }
+    return jsonResp(res, { ok: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // Projects
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/projects') {
+    const projects = [];
+    const { projects: mounts } = getSectionConfig();
+
+    const scanDir = (dir, folderType, nameFilter) => {
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          if (nameFilter && !nameFilter(entry.name)) continue;
+          const claudePath = path.join(dir, entry.name, 'CLAUDE.md');
+          const raw = safeRead(claudePath);
+          if (!raw) continue; // only include folders that have a CLAUDE.md
+          const parsed = parseClaudeMd(raw);
+          projects.push({ ...parsed, id: hashStr(folderType + '|' + entry.name), folder: entry.name, folderType });
+        }
+      } catch {}
+    };
+
+    const allArchiveNames = new Set([ARCHIVE_FOLDER, ...LEGACY_ARCHIVE_FOLDERS]);
+    for (const mount of mounts) {
+      // Active projects (exclude archive subfolders and hidden/underscore entries)
+      scanDir(mount, 'projects',
+        n => !n.startsWith('.') && !n.startsWith('_') && !allArchiveNames.has(n));
+      // Archived projects (canonical + any legacy folders that haven't been migrated yet).
+      for (const archiveName of allArchiveNames) {
+        scanDir(path.join(mount, archiveName), 'completed-project', n => !n.startsWith('.'));
+      }
+    }
+
+    projects.sort((a, b) => a.folderType.localeCompare(b.folderType) || a.name.localeCompare(b.name));
+    return jsonResp(res, projects);
+  }
+
+  if (method === 'POST' && pathname === '/api/project/create') {
+    const body = await readBody(req);
+    const { name, description, mountPath, startDate, endDate } = body;
+    if (!name) return errResp(res, 'name required');
+    const priority = (body.priority || 'medium').toLowerCase();
+    const priorityColors = getPriorityColors();
+    const color = body.color || priorityColors[priority] || priorityColors.medium;
+    const { projects: mounts } = getSectionConfig();
+    const parentDir = mountPath && fs.existsSync(mountPath) ? mountPath : mounts[0];
+    if (!parentDir) return errResp(res, 'No project mounts configured');
+    const folderName = name.replace(/[<>:"/\\|?*]/g, '-').trim();
+    const folderPath = path.join(parentDir, folderName);
+    if (fs.existsSync(folderPath)) return errResp(res, 'Folder already exists');
+    fs.mkdirSync(folderPath, { recursive: true });
+    fs.writeFileSync(path.join(folderPath, 'CLAUDE.md'), claudeMdTemplate(name, description, priority, color, startDate, endDate), 'utf8');
+    ensureSubfolders(folderPath, PROJECT_SUBFOLDERS);
+    return jsonResp(res, { ok: true, folder: folderName });
+  }
+
+  // GET /api/project/:folder/files — full recursive file tree rooted at the project folder
+  if (method === 'GET' && /^\/api\/project\/[^/]+\/files$/.test(pathname)) {
+    const rawSeg = pathname.slice('/api/project/'.length).replace(/\/files$/, '');
+    const folder = decodeURIComponent(rawSeg);
+    const found = findProjectFolder(folder);
+    if (!found) return errResp(res, 'Not found', 404);
+    return jsonResp(res, buildTree(found.dir, '', folder));
+  }
+
+  // GET /api/project/:folder/notes-list | chats-list — card-ready metadata for a subfolder
+  const projListMatch = method === 'GET' && pathname.match(/^\/api\/project\/([^/]+)\/(notes-list|chats-list)$/);
+  if (projListMatch) {
+    const folder = decodeURIComponent(projListMatch[1]);
+    const which = projListMatch[2];
+    const found = findProjectFolder(folder);
+    if (!found) return errResp(res, 'Not found', 404);
+    const sub = which === 'notes-list' ? 'Notes' : 'Chat Summaries';
+    // Ensure the subfolder exists so first-time visits to a legacy project don't 404.
+    try { if (!fs.existsSync(path.join(found.dir, sub))) fs.mkdirSync(path.join(found.dir, sub), { recursive: true }); } catch {}
+    return jsonResp(res, listMarkdownCards(found.dir, sub));
+  }
+
+  // ---- Project-scoped file operations (read / write / mkdir / move / rename / delete) ----
+  const projFileOp = pathname.match(/^\/api\/project\/([^/]+)\/(file|mkdir|move|rename|raw)$/);
+  if (projFileOp) {
+    const folder = decodeURIComponent(projFileOp[1]);
+    const op = projFileOp[2];
+    const found = findProjectFolder(folder);
+    if (!found) return errResp(res, 'Not found', 404);
+    try {
+      if (op === 'file' && method === 'GET') {
+        const rel = url.searchParams.get('path') || '';
+        if (!rel) return errResp(res, 'path required');
+        return jsonResp(res, readFileContent(found.dir, rel));
+      }
+      if (op === 'file' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path) return errResp(res, 'path required');
+        if (body.encoding === 'base64') {
+          // Binary upload: decode and write bytes (images, docx, pdf, etc.)
+          const abs = resolveInsideRoot(found.dir, body.path);
+          fs.mkdirSync(path.dirname(abs), { recursive: true });
+          fs.writeFileSync(abs, Buffer.from(body.content || '', 'base64'));
+        } else {
+          writeFileContent(found.dir, body.path, body.content || '');
+        }
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'file' && method === 'DELETE') {
+        const rel = url.searchParams.get('path') || (await readBody(req)).path;
+        if (!rel) return errResp(res, 'path required');
+        deleteAt(found.dir, rel);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'mkdir' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path) return errResp(res, 'path required');
+        mkdirAt(found.dir, body.path);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'move' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.from || !body.to) return errResp(res, 'from and to required');
+        moveAt(found.dir, body.from, body.to);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'rename' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path || !body.newName) return errResp(res, 'path and newName required');
+        renameAt(found.dir, body.path, body.newName);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'raw' && method === 'GET') {
+        const rel = url.searchParams.get('path') || '';
+        if (!rel) return errResp(res, 'path required');
+        return streamRawFile(res, found.dir, rel);
+      }
+    } catch (e) {
+      return errResp(res, e.message || 'Operation failed', e.status || 400);
+    }
+  }
+
+  if (pathname.startsWith('/api/project/')) {
+    const folder = decodeURIComponent(pathname.slice('/api/project/'.length));
+    if (!folder) return errResp(res, 'folder required');
+
+    if (method === 'GET') {
+      const found = findProjectFolder(folder);
+      if (!found) return errResp(res, 'Not found', 404);
+      const claudePath = path.join(found.dir, 'CLAUDE.md');
+      const raw = safeRead(claudePath) || `# ${folder}`;
+      const parsed = parseClaudeMd(raw);
+      autoMigrateProject(found.dir, parsed);
+      return jsonResp(res, { ...parsed, id: hashStr(found.folderType + '|' + folder), folder, folderType: found.folderType });
+    }
+
+    if (method === 'POST') {
+      const found = findProjectFolder(folder);
+      if (!found) return errResp(res, 'Not found', 404);
+      const claudePath = path.join(found.dir, 'CLAUDE.md');
+      const existing = safeRead(claudePath) || `# ${folder}\n`;
+      const updates = await readBody(req);
+      const newContent = writeClaudeMd(existing, updates);
+      fs.writeFileSync(claudePath, newContent, 'utf8');
+
+      // Auto-move: check if completion status changed
+      const parsed = parseClaudeMd(newContent);
+      const isCompleted = parsed.status === 'completed';
+      const inArchive = found.folderType === 'completed-project';
+
+      // Derive the mount root from the current folder location
+      const parentDir = path.dirname(found.dir);
+      const mountDir = inArchive ? path.dirname(parentDir) : parentDir;
+
+      if (isCompleted && !inArchive) {
+        const archiveParent = path.join(mountDir, ARCHIVE_FOLDER);
+        fs.mkdirSync(archiveParent, { recursive: true });
+        const dest = path.join(archiveParent, folder);
+        if (!fs.existsSync(dest)) {
+          try {
+            moveFolder(found.dir, dest);
+            return jsonResp(res, { ok: true, moved: true, archived: true });
+          } catch (e) {
+            console.error('Auto-move to archive failed:', e.message);
+            return jsonResp(res, { ok: true, moved: false });
+          }
+        }
+        return jsonResp(res, { ok: true, moved: false });
+      } else if (!isCompleted && inArchive) {
+        const dest = path.join(mountDir, folder);
+        if (!fs.existsSync(dest)) {
+          try {
+            moveFolder(found.dir, dest);
+            return jsonResp(res, { ok: true, moved: true, archived: false });
+          } catch (e) {
+            console.error('Auto-restore failed:', e.message);
+            return jsonResp(res, { ok: true, moved: false });
+          }
+        }
+        return jsonResp(res, { ok: true, moved: false });
+      }
+
+      return jsonResp(res, { ok: true });
+    }
+
+    if (method === 'DELETE') {
+      const found = findProjectFolder(folder);
+      if (!found) return errResp(res, 'Not found', 404);
+      fs.rmSync(found.dir, { recursive: true, force: true });
+      return jsonResp(res, { ok: true });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Meetings
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/meetings') {
+    const meetings = [];
+    const meetDir = getSectionConfig().meetings;
+    try {
+      for (const entry of fs.readdirSync(meetDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !MEETING_RE.test(entry.name)) continue;
+        // Prefer CLAUDE.md (new schema); fall back to context.md for folders that
+        // haven't been swept yet (legacy). The migration sweep flips these over
+        // at startup, but a resilient read path keeps the listing working even
+        // if the sweep hasn't run.
+        const dir = path.join(meetDir, entry.name);
+        const claudePath = path.join(dir, 'CLAUDE.md');
+        const ctxPath = path.join(dir, 'context.md');
+        let raw;
+        if (fs.existsSync(claudePath)) raw = safeRead(claudePath);
+        else if (fs.existsSync(ctxPath)) raw = safeRead(ctxPath);
+        else continue;
+        const parsed = parseContextMd(raw || `# ${entry.name}`);
+        meetings.push({ ...parsed, id: hashStr('meeting|' + entry.name), folder: entry.name });
+      }
+    } catch {}
+    meetings.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    return jsonResp(res, meetings);
+  }
+
+  if (method === 'POST' && pathname === '/api/meeting/create') {
+    const body = await readBody(req);
+    const { title, date } = body;
+    if (!title || !date) return errResp(res, 'title and date required');
+    const meetDir = getSectionConfig().meetings;
+    const folderName = `${date} \u2014 ${title}`.replace(/[<>:"/\\|?*]/g, '-').trim();
+    const folderPath = path.join(meetDir, folderName);
+    if (fs.existsSync(folderPath)) return errResp(res, 'Folder already exists');
+    fs.mkdirSync(folderPath, { recursive: true });
+    fs.writeFileSync(path.join(folderPath, 'CLAUDE.md'), claudeMdTemplateMeeting(title, date), 'utf8');
+    ensureSubfolders(folderPath, MEETING_SUBFOLDERS);
+    return jsonResp(res, { ok: true, folder: folderName });
+  }
+
+  // GET /api/meeting/:folder/files — recursive tree rooted at the meeting folder
+  if (method === 'GET' && /^\/api\/meeting\/[^/]+\/files$/.test(pathname)) {
+    const folder = decodeURIComponent(pathname.slice('/api/meeting/'.length).replace(/\/files$/, ''));
+    const meetFolderPath = path.join(getSectionConfig().meetings, folder);
+    if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+    return jsonResp(res, buildTree(meetFolderPath, '', folder));
+  }
+
+  // GET /api/meeting/:folder/notes-list — card-ready metadata for a subfolder.
+  // NOTE: Chat Summaries is a project-only feature, so there's no chats-list here.
+  const meetListMatch = method === 'GET' && pathname.match(/^\/api\/meeting\/([^/]+)\/notes-list$/);
+  if (meetListMatch) {
+    const folder = decodeURIComponent(meetListMatch[1]);
+    const meetFolderPath = path.join(getSectionConfig().meetings, folder);
+    if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+    try { if (!fs.existsSync(path.join(meetFolderPath, 'Notes'))) fs.mkdirSync(path.join(meetFolderPath, 'Notes'), { recursive: true }); } catch {}
+    return jsonResp(res, listMarkdownCards(meetFolderPath, 'Notes'));
+  }
+
+  // ---- Meeting-scoped file operations ----
+  const meetFileOp = pathname.match(/^\/api\/meeting\/([^/]+)\/(file|mkdir|move|rename|raw)$/);
+  if (meetFileOp) {
+    const folder = decodeURIComponent(meetFileOp[1]);
+    const op = meetFileOp[2];
+    const meetFolderPath = path.join(getSectionConfig().meetings, folder);
+    if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+    try {
+      if (op === 'file' && method === 'GET') {
+        const rel = url.searchParams.get('path') || '';
+        if (!rel) return errResp(res, 'path required');
+        return jsonResp(res, readFileContent(meetFolderPath, rel));
+      }
+      if (op === 'file' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path) return errResp(res, 'path required');
+        if (body.encoding === 'base64') {
+          const abs = resolveInsideRoot(meetFolderPath, body.path);
+          fs.mkdirSync(path.dirname(abs), { recursive: true });
+          fs.writeFileSync(abs, Buffer.from(body.content || '', 'base64'));
+        } else {
+          writeFileContent(meetFolderPath, body.path, body.content || '');
+        }
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'file' && method === 'DELETE') {
+        const rel = url.searchParams.get('path') || (await readBody(req)).path;
+        if (!rel) return errResp(res, 'path required');
+        deleteAt(meetFolderPath, rel);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'mkdir' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path) return errResp(res, 'path required');
+        mkdirAt(meetFolderPath, body.path);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'move' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.from || !body.to) return errResp(res, 'from and to required');
+        moveAt(meetFolderPath, body.from, body.to);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'rename' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path || !body.newName) return errResp(res, 'path and newName required');
+        renameAt(meetFolderPath, body.path, body.newName);
+        return jsonResp(res, { ok: true });
+      }
+      if (op === 'raw' && method === 'GET') {
+        const rel = url.searchParams.get('path') || '';
+        if (!rel) return errResp(res, 'path required');
+        return streamRawFile(res, meetFolderPath, rel);
+      }
+    } catch (e) {
+      return errResp(res, e.message || 'Operation failed', e.status || 400);
+    }
+  }
+
+  if (pathname.startsWith('/api/meeting/') && !pathname.slice('/api/meeting/'.length).includes('/')) {
+    const folder = decodeURIComponent(pathname.slice('/api/meeting/'.length));
+    if (!folder) return errResp(res, 'folder required');
+    const meetFolderPath = path.join(getSectionConfig().meetings, folder);
+    const claudePath = path.join(meetFolderPath, 'CLAUDE.md');
+    const ctxPath = path.join(meetFolderPath, 'context.md');
+
+    if (method === 'GET') {
+      if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+      // Prefer CLAUDE.md; migrate from context.md on the fly if needed.
+      if (!fs.existsSync(claudePath) && fs.existsSync(ctxPath)) {
+        const parsedLegacy = parseContextMd(safeRead(ctxPath) || `# ${folder}`);
+        autoMigrateMeeting(meetFolderPath, parsedLegacy);
+      }
+      const raw = safeRead(claudePath) || safeRead(ctxPath) || `# ${folder}`;
+      const parsed = parseContextMd(raw);
+      autoMigrateMeeting(meetFolderPath, parsed);
+      return jsonResp(res, { ...parsed, id: hashStr('meeting|' + folder), folder });
+    }
+
+    if (method === 'POST') {
+      if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+      const body = await readBody(req);
+      // Ensure CLAUDE.md exists before writing (bootstrap from context.md if needed).
+      if (!fs.existsSync(claudePath)) {
+        if (fs.existsSync(ctxPath)) {
+          autoMigrateMeeting(meetFolderPath, parseContextMd(safeRead(ctxPath) || ''));
+        } else {
+          fs.writeFileSync(claudePath, claudeMdTemplateMeeting(folder, ''), 'utf8');
+        }
+      }
+      const existing = safeRead(claudePath) || `# ${folder}\n`;
+      const newContent = writeClaudeMd(existing, body);
+      fs.writeFileSync(claudePath, newContent, 'utf8');
+      return jsonResp(res, { ok: true });
+    }
+
+    if (method === 'DELETE') {
+      if (!fs.existsSync(meetFolderPath)) return errResp(res, 'Not found', 404);
+      fs.rmSync(meetFolderPath, { recursive: true, force: true });
+      return jsonResp(res, { ok: true });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Tasks
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/tasks') {
+    const raw = safeRead(TASKS_FILE);
+    return jsonResp(res, raw ? JSON.parse(raw) : { tasks: [], taskChecks: {}, nextTid: 1 });
+  }
+
+  if (method === 'POST' && pathname === '/api/tasks') {
+    const body = await readBody(req);
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(body, null, 2), 'utf8');
+    return jsonResp(res, { ok: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // UI State
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/ui-state') {
+    const raw = safeRead(UI_STATE_FILE);
+    return jsonResp(res, raw ? JSON.parse(raw) : { weekNotes: {}, timeSummary: {}, savedSummaries: [], weekOffset: 0 });
+  }
+
+  if (method === 'POST' && pathname === '/api/ui-state') {
+    const body = await readBody(req);
+    fs.writeFileSync(UI_STATE_FILE, JSON.stringify(body, null, 2), 'utf8');
+    return jsonResp(res, { ok: true });
+  }
+
+  // -------------------------------------------------------------------------
+  // Files API
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && pathname === '/api/files') {
+    const { files: filesRoot } = getSectionConfig();
+    return jsonResp(res, buildFileTree(filesRoot, '', filesRoot));
+  }
+
+  if (method === 'GET' && pathname === '/api/files/content') {
+    const { files: filesRoot } = getSectionConfig();
+    const relPath = url.searchParams.get('path') || '';
+    if (!relPath) return errResp(res, 'path required');
+    const absPath = path.resolve(path.join(filesRoot, relPath));
+    if (!absPath.startsWith(path.resolve(filesRoot))) return errResp(res, 'Invalid path', 403);
+    const content = safeRead(absPath);
+    if (content === null) return errResp(res, 'Not found', 404);
+    const ext = path.extname(relPath).toLowerCase().replace('.', '');
+    return jsonResp(res, { content, ext, path: relPath });
+  }
+
+  if (method === 'POST' && pathname === '/api/files/move') {
+    const { files: filesRoot } = getSectionConfig();
+    const body = await readBody(req);
+    const { from, to } = body;
+    if (!from || !to) return errResp(res, 'from and to required');
+    const absFrom = path.resolve(path.join(filesRoot, from));
+    const absTo = path.resolve(path.join(filesRoot, to));
+    const root = path.resolve(filesRoot);
+    if (!absFrom.startsWith(root) || !absTo.startsWith(root)) return errResp(res, 'Invalid path', 403);
+    try {
+      fs.mkdirSync(path.dirname(absTo), { recursive: true });
+      try {
+        fs.renameSync(absFrom, absTo);
+      } catch {
+        // Fallback for cross-device / OneDrive-locked files
+        const srcStat = fs.statSync(absFrom);
+        if (srcStat.isDirectory()) {
+          fs.cpSync(absFrom, absTo, { recursive: true });
+          fs.rmSync(absFrom, { recursive: true, force: true });
+        } else {
+          fs.copyFileSync(absFrom, absTo);
+          fs.unlinkSync(absFrom);
+        }
+      }
+      return jsonResp(res, { ok: true });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/files/rename') {
+    const { files: filesRoot } = getSectionConfig();
+    const body = await readBody(req);
+    const { path: relPath, newName } = body;
+    if (!relPath || !newName) return errResp(res, 'path and newName required');
+    const absOld = path.resolve(path.join(filesRoot, relPath));
+    const absNew = path.resolve(path.join(path.dirname(absOld), newName));
+    const root = path.resolve(filesRoot);
+    if (!absOld.startsWith(root) || !absNew.startsWith(root)) return errResp(res, 'Invalid path', 403);
+    try {
+      fs.renameSync(absOld, absNew);
+      return jsonResp(res, { ok: true });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  if (method === 'DELETE' && pathname === '/api/files') {
+    const { files: filesRoot } = getSectionConfig();
+    const body = await readBody(req);
+    const relPath = body.path;
+    if (!relPath) return errResp(res, 'path required');
+    const absPath = path.resolve(path.join(filesRoot, relPath));
+    if (!absPath.startsWith(path.resolve(filesRoot))) return errResp(res, 'Invalid path', 403);
+    try {
+      fs.rmSync(absPath, { recursive: true, force: true });
+      return jsonResp(res, { ok: true });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/files/mkdir') {
+    const { files: filesRoot } = getSectionConfig();
+    const body = await readBody(req);
+    const relPath = body.path;
+    if (!relPath) return errResp(res, 'path required');
+    const absPath = path.resolve(path.join(filesRoot, relPath));
+    if (!absPath.startsWith(path.resolve(filesRoot))) return errResp(res, 'Invalid path', 403);
+    try {
+      fs.mkdirSync(absPath, { recursive: true });
+      return jsonResp(res, { ok: true });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  if (method === 'POST' && pathname === '/api/files/touch') {
+    const { files: filesRoot } = getSectionConfig();
+    const body = await readBody(req);
+    const relPath = body.path;
+    if (!relPath) return errResp(res, 'path required');
+    const absPath = path.resolve(path.join(filesRoot, relPath));
+    if (!absPath.startsWith(path.resolve(filesRoot))) return errResp(res, 'Invalid path', 403);
+    try {
+      fs.mkdirSync(path.dirname(absPath), { recursive: true });
+      fs.writeFileSync(absPath, body.content || '', 'utf8');
+      return jsonResp(res, { ok: true });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Global file ops mirroring the scoped /api/{ctx}/{folder}/(file|raw) shape.
+  // Lets the global Files tab share the project/meeting wv-* viewer/editor.
+  // Roots all reads/writes against getSectionConfig().files.
+  // -------------------------------------------------------------------------
+  if (pathname === '/api/files/file') {
+    const { files: filesRoot } = getSectionConfig();
+    if (!filesRoot) return errResp(res, 'No files root configured', 400);
+    try {
+      if (method === 'GET') {
+        const rel = url.searchParams.get('path') || '';
+        if (!rel) return errResp(res, 'path required');
+        return jsonResp(res, readFileContent(filesRoot, rel));
+      }
+      if (method === 'POST') {
+        const body = await readBody(req);
+        if (!body.path) return errResp(res, 'path required');
+        if (body.encoding === 'base64') {
+          const abs = resolveInsideRoot(filesRoot, body.path);
+          fs.mkdirSync(path.dirname(abs), { recursive: true });
+          fs.writeFileSync(abs, Buffer.from(body.content || '', 'base64'));
+        } else {
+          writeFileContent(filesRoot, body.path, body.content || '');
+        }
+        return jsonResp(res, { ok: true });
+      }
+      if (method === 'DELETE') {
+        const rel = url.searchParams.get('path') || (await readBody(req)).path;
+        if (!rel) return errResp(res, 'path required');
+        deleteAt(filesRoot, rel);
+        return jsonResp(res, { ok: true });
+      }
+    } catch (e) {
+      return errResp(res, e.message || 'Operation failed', e.status || 400);
+    }
+  }
+
+  if (method === 'GET' && pathname === '/api/files/raw') {
+    const { files: filesRoot } = getSectionConfig();
+    if (!filesRoot) return errResp(res, 'No files root configured', 400);
+    const rel = url.searchParams.get('path') || '';
+    if (!rel) return errResp(res, 'path required');
+    return streamRawFile(res, filesRoot, rel);
+  }
+
+  // -------------------------------------------------------------------------
+  // Summary — write .md file to Time Summaries folder
+  // -------------------------------------------------------------------------
+  if (method === 'POST' && pathname === '/api/summary/write') {
+    const body = await readBody(req);
+    const { startDate, endDate, markdown } = body;
+    if (!startDate || !endDate || !markdown) return errResp(res, 'startDate, endDate, markdown required');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate))
+      return errResp(res, 'Invalid date format');
+    const SUMMARY_DIR = path.join(COWORK_ROOT, 'Time Summaries');
+    try {
+      fs.mkdirSync(SUMMARY_DIR, { recursive: true });
+      const claudePath = path.join(SUMMARY_DIR, 'CLAUDE.md');
+      if (!fs.existsSync(claudePath)) fs.writeFileSync(claudePath, timeSummariesClaudeMd(), 'utf8');
+      const filename = `${startDate} \u2013 ${endDate} Summary.md`;
+      fs.writeFileSync(path.join(SUMMARY_DIR, filename), markdown, 'utf8');
+      return jsonResp(res, { ok: true, filename });
+    } catch (e) {
+      return errResp(res, e.message);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Frontend — serve V3 HTML
+  // -------------------------------------------------------------------------
+  if (method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+    const html = safeRead(HTML_FILE);
+    if (!html) {
+      res.writeHead(503, { 'Content-Type': 'text/plain' });
+      return res.end('Promega.Project.Planner.V3.html not found');
+    }
+    // No-store so Electron's Chromium never serves a stale HTML — every reinstall
+    // / reload picks up the freshly-bundled UI code instead of the disk cache.
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    });
+    return res.end(html);
+  }
+
+  // 404
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not found');
+  } catch (e) {
+    console.error('[requestListener] unhandled error:', e.message, e.stack);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error: ' + e.message }));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chokidar file watcher → broadcast to SSE clients
+// ---------------------------------------------------------------------------
+const initialCfg = getSectionConfig();
+// Filter out empty strings so chokidar doesn't try to watch '' (which on Windows
+// resolves to cwd and produces noise). On a fresh install with no paths
+// configured, watchPaths starts empty and the watcher gets paths added later
+// via the /api/config POST handler.
+const watchPaths = [...new Set([COWORK_ROOT, initialCfg.files, initialCfg.meetings, ...initialCfg.projects])]
+  .filter(p => p && typeof p === 'string');
+
+const watcher = chokidar.watch(watchPaths, {
+  ignoreInitial: true,
+  depth: 8,
+  ignored: [/node_modules/, /\.git/, /\.claude/]
+});
+
+['add', 'change', 'unlink', 'addDir', 'unlinkDir'].forEach(evt =>
+  watcher.on(evt, filePath => {
+    const sectionCfg = getSectionConfig();
+    let section = 'files';
+    const normalized = filePath.replace(/\\/g, '/');
+    if (normalized.startsWith(sectionCfg.meetings.replace(/\\/g, '/'))) section = 'meetings';
+    else if (sectionCfg.projects.some(p => normalized.startsWith(p.replace(/\\/g, '/')))) section = 'projects';
+    const msg = JSON.stringify({ type: 'change', section, event: evt, path: filePath });
+    for (const client of sseClients) {
+      try { client.write(`data: ${msg}\n\n`); } catch {}
+    }
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Startup: consolidate legacy archive folders ("Completed Projects",
+// "Completed CCs") into the canonical "Completed/" subfolder per mount, then
+// ensure "Completed/" exists. Idempotent. Renaming an empty folder is a no-op.
+// ---------------------------------------------------------------------------
+function consolidateArchiveFolders() {
+  let renamed = 0, merged = 0;
+  for (const mount of initialCfg.projects) {
+    const canonical = path.join(mount, ARCHIVE_FOLDER);
+    for (const legacyName of LEGACY_ARCHIVE_FOLDERS) {
+      const legacyPath = path.join(mount, legacyName);
+      if (!fs.existsSync(legacyPath)) continue;
+      try {
+        if (!fs.existsSync(canonical)) {
+          fs.renameSync(legacyPath, canonical);
+          renamed++;
+          console.log(`Renamed "${legacyName}/" → "${ARCHIVE_FOLDER}/" in ${mount}`);
+        } else {
+          // Both exist — move children of legacy into canonical, then drop the empty shell.
+          for (const child of fs.readdirSync(legacyPath, { withFileTypes: true })) {
+            const src = path.join(legacyPath, child.name);
+            const dst = path.join(canonical, child.name);
+            if (fs.existsSync(dst)) {
+              console.warn(`Skipping merge of ${src} — destination ${dst} already exists`);
+              continue;
+            }
+            try { fs.renameSync(src, dst); merged++; }
+            catch (e) { console.warn('Merge child failed:', src, '→', dst, ':', e.message); }
+          }
+          // Remove the now-empty legacy folder if it has no remaining entries.
+          try {
+            const remaining = fs.readdirSync(legacyPath);
+            if (remaining.length === 0) fs.rmdirSync(legacyPath);
+          } catch {}
+        }
+      } catch (e) { console.warn('Archive consolidation failed for', legacyPath, ':', e.message); }
+    }
+    // Always ensure the canonical folder exists (so auto-archive-on-completed has a destination).
+    try { if (!fs.existsSync(canonical)) fs.mkdirSync(canonical, { recursive: true }); }
+    catch (e) { console.warn('Could not create', canonical, ':', e.message); }
+  }
+  if (renamed || merged) console.log(`Archive: renamed ${renamed} legacy folders, merged ${merged} children into ${ARCHIVE_FOLDER}/.`);
+}
+try { consolidateArchiveFolders(); } catch (e) { console.warn('consolidateArchiveFolders failed:', e.message); }
+
+// ---------------------------------------------------------------------------
+// Startup sweep: non-destructive migration to the new structure. For every
+// existing project/meeting, merge description.md and (for meetings) context.md
+// into CLAUDE.md, rename old files to .bak, and scaffold empty subfolders.
+// Idempotent — running multiple times is a no-op after the first pass.
+// ---------------------------------------------------------------------------
+function sweepMigrateAll() {
+  let projectsSwept = 0, meetingsSwept = 0, errors = 0;
+  const isDirty = (sub, subfolders) => {
+    // "Dirty" = has any legacy file OR is missing any required subfolder.
+    if (fs.existsSync(path.join(sub, 'description.md'))) return true;
+    if (fs.existsSync(path.join(sub, 'MEMORY.md'))) return true;
+    if (fs.existsSync(path.join(sub, 'context.md')) && !fs.existsSync(path.join(sub, 'CLAUDE.md'))) return true;
+    for (const f of subfolders) if (!fs.existsSync(path.join(sub, f))) return true;
+    // Leftover auto-generated Notes/notes.md stub.
+    const stub = path.join(sub, 'Notes', 'notes.md');
+    if (fs.existsSync(stub)) {
+      try {
+        const raw = fs.readFileSync(stub, 'utf8').trim();
+        if (!raw || /^#[^\n]*—\s+Notes\s*$/.test(raw)) return true;
+      } catch {}
+    }
+    return false;
+  };
+
+  const sweepProjects = (dir) => {
+    if (!fs.existsSync(dir)) return;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+        if (entry.name === ARCHIVE_FOLDER || LEGACY_ARCHIVE_FOLDERS.includes(entry.name)) continue;
+        const sub = path.join(dir, entry.name);
+        if (!fs.existsSync(path.join(sub, 'CLAUDE.md'))) continue;
+        if (!isDirty(sub, PROJECT_SUBFOLDERS)) continue;
+        try {
+          const parsed = parseClaudeMd(safeRead(path.join(sub, 'CLAUDE.md')) || '');
+          autoMigrateProject(sub, parsed);
+          projectsSwept++;
+        } catch (e) { errors++; console.warn('migrate project', sub, 'failed:', e.message); }
+      }
+    } catch (e) { console.warn('Sweep error in', dir, ':', e.message); }
+  };
+  for (const mount of initialCfg.projects) {
+    sweepProjects(mount);
+    sweepProjects(path.join(mount, ARCHIVE_FOLDER));
+    for (const legacy of LEGACY_ARCHIVE_FOLDERS) sweepProjects(path.join(mount, legacy));
+  }
+
+  // Meetings: folder name must match MEETING_RE. Migrate whether the folder
+  // currently has CLAUDE.md or context.md.
+  let colorsRepaired = 0, meetingChatsRemoved = 0;
+  if (initialCfg.meetings && fs.existsSync(initialCfg.meetings)) {
+    try {
+      for (const entry of fs.readdirSync(initialCfg.meetings, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !MEETING_RE.test(entry.name)) continue;
+        const sub = path.join(initialCfg.meetings, entry.name);
+        const hasClaude = fs.existsSync(path.join(sub, 'CLAUDE.md'));
+        const hasContext = fs.existsSync(path.join(sub, 'context.md'));
+        if (!hasClaude && !hasContext) continue;
+        if (isDirty(sub, MEETING_SUBFOLDERS)) {
+          try {
+            const raw = safeRead(path.join(sub, hasClaude ? 'CLAUDE.md' : 'context.md')) || '';
+            const parsed = parseContextMd(raw);
+            autoMigrateMeeting(sub, parsed);
+            meetingsSwept++;
+          } catch (e) { errors++; console.warn('migrate meeting', sub, 'failed:', e.message); }
+        }
+        // One-off color repair: earlier migrations hard-coded color=#3584d4,
+        // which made every meeting the same blue. Replace that sentinel with
+        // nameColor(title) so meetings with the same title match.
+        try {
+          const claudePath = path.join(sub, 'CLAUDE.md');
+          if (fs.existsSync(claudePath)) {
+            const raw = safeRead(claudePath) || '';
+            const parsed = parseClaudeMd(raw);
+            if (parsed.color && parsed.color.toLowerCase() === '#3584d4') {
+              const newColor = nameColor(parsed.name || entry.name);
+              const rewritten = writeClaudeMd(raw, { color: newColor });
+              fs.writeFileSync(claudePath, rewritten, 'utf8');
+              colorsRepaired++;
+            }
+          }
+        } catch (e) { errors++; }
+        // Remove empty Chat Summaries/ folders left over from earlier scaffolding
+        // (Chat Summaries is a project-only feature now).
+        try {
+          const chatsDir = path.join(sub, 'Chat Summaries');
+          if (fs.existsSync(chatsDir) && fs.readdirSync(chatsDir).length === 0) {
+            fs.rmdirSync(chatsDir);
+            meetingChatsRemoved++;
+          }
+        } catch {}
+      }
+    } catch (e) { console.warn('Sweep error in meetings:', e.message); }
+  }
+  if (colorsRepaired) console.log(`Recolored ${colorsRepaired} meetings from the legacy default to name-hashed colors.`);
+  if (meetingChatsRemoved) console.log(`Removed ${meetingChatsRemoved} empty "Chat Summaries" folders from meetings (project-only feature).`);
+  if (projectsSwept || meetingsSwept || errors) {
+    console.log(`Sweep migrated ${projectsSwept} projects, ${meetingsSwept} meetings${errors?` (${errors} errors — see warnings above)`:''}`);
+  } else {
+    console.log('Sweep: everything already migrated');
+  }
+}
+try { sweepMigrateAll(); } catch (e) { console.warn('sweepMigrateAll failed:', e.message); }
+
+// Start server
+// ---------------------------------------------------------------------------
+const server = http.createServer(requestListener);
+server.listen(PORT, () => {
+  console.log(`Promega Project Planner V3 running at http://localhost:${PORT}`);
+  console.log(`COWORK root: ${COWORK_ROOT}`);
+  console.log(`Files: ${initialCfg.files}`);
+  console.log(`Meetings: ${initialCfg.meetings}`);
+  console.log(`Projects (${initialCfg.projects.length} mounts): ${initialCfg.projects.join(', ')}`);
+});

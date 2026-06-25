@@ -1,0 +1,52 @@
+{
+  "name": "promega-project-planner",
+  "version": "3.0.4",
+  "description": "Promega Project Planner — Will Aadland's Cowork visualizer",
+  "type": "module",
+  "main": "electron-main.cjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "app": "node bin/launch.cjs",
+    "dist": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "chokidar": "^3.6.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.willaadland.promega.projectplanner",
+    "productName": "Promega Project Planner",
+    "asar": false,
+    "directories": {
+      "output": "dist-app",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron-main.cjs",
+      "bin/launch.cjs",
+      "package.json",
+      "Promega.Project.Planner.V3.html",
+      "server.mjs",
+      "lib/**/*",
+      "config.example.json",
+      "node_modules/**/*",
+      "!config.json",
+      "!tasks.json",
+      "!ui-state.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Promega Project Planner"
+    }
+  }
+}
