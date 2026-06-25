@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Promega CoWork OS — Getting Started</title>
+<style>
+  :root {
+    --pg-navy: #0a2240;
+    --pg-navy-2: #14365b;
+    --pg-blue: #1e63a3;
+    --pg-gold: #f5b400;
+    --pg-gold-2: #ffd24a;
+    --pg-cream: #fff8e6;
+    --ink: #1a1a1a;
+    --ink-2: #4a5568;
+    --line: #e2e8f0;
+    --bg: #f7f9fc;
+    --code-bg: #0f1c30;
+    --code-fg: #e6edf5;
+    --ok: #2e7d4f;
+    --warn: #c62828;
+    --warn-bg: #fff5f5;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    background: linear-gradient(135deg, var(--pg-navy) 0%, var(--pg-navy-2) 60%, var(--pg-blue) 100%);
+    color: white;
+    padding: 56px 24px 64px;
+    border-bottom: 6px solid var(--pg-gold);
+  }
+  .hero-inner { max-width: 1100px; margin: 0 auto; }
+  .hero-eyebrow {
+    color: var(--pg-gold-2);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+  }
+  .hero h1 {
+    font-size: 44px;
+    line-height: 1.1;
+    font-weight: 800;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+  }
+  .hero p.lead {
+    font-size: 19px;
+    color: rgba(255, 255, 255, 0.86);
+    max-width: 780px;
+    margin: 0 0 24px;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+  .hero-meta strong { color: var(--pg-gold-2); }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 48px 24px 80px; }
+  section { margin-bottom: 64px; }
+
+  h2 {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--pg-navy);
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    display: inline-block;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    background: var(--pg-gold);
+    padding: 2px 10px;
+    border-radius: 4px;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+  h3 {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--pg-navy);
+    margin: 24px 0 8px;
+  }
+  h4 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--pg-navy-2);
+    margin: 18px 0 6px;
+  }
+  .section-sub {
+    font-size: 15px;
+    color: var(--ink-2);
+    margin: 0 0 24px;
+    max-width: 800px;
+  }
+
+  /* ---------- TOC ---------- */
+  .toc {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 48px;
+  }
+  .toc-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-2);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 12px;
+  }
+  .toc ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px 24px;
+    counter-reset: toc;
+  }
+  .toc ol li {
+    counter-increment: toc;
+    padding-left: 28px;
+    position: relative;
+    font-size: 15px;
+  }
+  .toc ol li::before {
+    content: counter(toc);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: var(--pg-cream);
+    color: var(--pg-navy);
+    font-weight: 700;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { color: var(--pg-blue); text-decoration: underline; }
+
+  /* ---------- Step cards ---------- */
+  .steps { display: flex; flex-direction: column; gap: 20px; }
+  .step {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px 28px;
+    display: grid;
+    grid-template-columns: 64px 1fr;
+    gap: 20px;
+    box-shadow: 0 1px 3px rgba(10, 34, 64, 0.04);
+  }
+  .step-num {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--pg-navy), var(--pg-blue));
+    color: var(--pg-gold-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(10, 34, 64, 0.18);
+  }
+  .step-body h3 { margin-top: 0; }
+  .step-body p { margin: 0 0 12px; }
+  .step-body ul { margin: 8px 0 12px 20px; padding: 0; }
+  .step-body ol { margin: 8px 0 12px 20px; padding: 0; }
+  .step-body li { margin-bottom: 6px; }
+
+  /* ---------- Code ---------- */
+  code, pre {
+    font-family: "SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+  }
+  code {
+    background: #f1f4f8;
+    color: var(--pg-navy);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.92em;
+    border: 1px solid #e3e8ef;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 16px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 12px 0;
+  }
+  pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    border: 0;
+    font-size: inherit;
+  }
+
+  /* ---------- Callouts ---------- */
+  .note {
+    border-left: 4px solid var(--pg-gold);
+    background: var(--pg-cream);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 14px;
+    color: #6b4c00;
+    margin: 14px 0;
+  }
+  .note strong { color: var(--pg-navy); }
+  .warn {
+    border-left: 4px solid var(--warn);
+    background: var(--warn-bg);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 14px;
+    color: #7f1f1f;
+    margin: 14px 0;
+  }
+  .warn strong { color: var(--warn); }
+
+  /* ---------- Workaround panel ---------- */
+  .workaround {
+    background: #fff8e6;
+    border: 2px dashed var(--pg-gold);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 18px 0;
+  }
+  .workaround h4 {
+    margin-top: 0;
+    color: var(--pg-navy);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .workaround h4::before {
+    content: "WORKAROUND";
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    background: var(--pg-gold);
+    color: var(--pg-navy);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 800;
+  }
+  .workaround ol { margin: 8px 0 0 22px; padding: 0; }
+
+  /* ---------- Plugin option cards ---------- */
+  .plugin-option {
+    background: white;
+    border: 2px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin: 12px 0;
+    transition: border-color 0.15s;
+  }
+  .plugin-option:hover { border-color: var(--pg-blue); }
+  .plugin-option h4 {
+    margin-top: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .method-tag {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--pg-blue);
+    color: white;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+  }
+  .method-tag.alt {
+    background: var(--pg-gold);
+    color: var(--pg-navy);
+  }
+
+  /* ---------- Cards (skills/commands) ---------- */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: 0 1px 2px rgba(10, 34, 64, 0.03);
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 4px;
+  }
+  .badge.cmd { background: var(--pg-navy); color: var(--pg-gold-2); }
+  .badge.skill { background: var(--pg-gold); color: var(--pg-navy); }
+  .badge.eng {
+    background: #e8f0fe;
+    color: #1e3a8a;
+    border: 1px solid #bfcfee;
+  }
+  .card-name {
+    font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-weight: 700;
+    color: var(--pg-navy);
+    font-size: 15px;
+  }
+  .card p { margin: 0 0 8px; font-size: 14.5px; color: var(--ink-2); }
+  .card .triggers {
+    font-size: 13px;
+    color: var(--ink-2);
+    border-top: 1px dashed var(--line);
+    padding-top: 8px;
+    margin-top: 8px;
+  }
+  .card .triggers strong {
+    color: var(--pg-navy);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  /* ---------- Folder tree ---------- */
+  .tree {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 24px;
+    border-radius: 10px;
+    font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+  .tree .root { color: var(--pg-gold-2); font-weight: 700; }
+  .tree .mount { color: #82c4ff; }
+  .tree .item { color: #c5e8b7; }
+  .tree .meta { color: #8b9bab; }
+
+  /* ---------- Flow diagram ---------- */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 20px 0;
+  }
+  .flow-node {
+    background: white;
+    border: 2px solid var(--pg-navy);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .flow-node strong {
+    display: block;
+    color: var(--pg-navy);
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  .flow-node span { font-size: 13px; color: var(--ink-2); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    background: var(--pg-navy);
+    color: rgba(255, 255, 255, 0.7);
+    padding: 24px;
+    text-align: center;
+    font-size: 13px;
+    border-top: 4px solid var(--pg-gold);
+  }
+  footer strong { color: var(--pg-gold-2); }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 32px; }
+    .step { grid-template-columns: 1fr; }
+    .step-num { width: 48px; height: 48px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="hero-eyebrow">Promega CoWork OS</p>
+    <h1>Getting Started Guide</h1>
+    <p class="lead">A Claude plugin plus a Windows Electron desktop app that turns your work — projects, meetings, notes, transcripts — into folders on disk and visualizes them as cards. Claude reads and writes the same folders the Visualizer displays. This page walks you through the seven steps to go from zero to a working setup.</p>
+    <div class="hero-meta">
+      <span><strong>Plugins:</strong> promega-workspace v1.0.0 · promega-workspace-engineering v5.0.0</span>
+      <span><strong>Visualizer:</strong> Promega Project Planner V3.0.4</span>
+      <span><strong>Marketplace:</strong> will-aadland/cowork-os (GitHub)</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- TOC -->
+  <nav class="toc">
+    <p class="toc-title">On this page</p>
+    <ol>
+      <li><a href="#how-it-works">How it works</a></li>
+      <li><a href="#step-1">Create your CoworkOS folder</a></li>
+      <li><a href="#step-2">Add it to Claude as a favorite</a></li>
+      <li><a href="#step-3">Install the plugin</a></li>
+      <li><a href="#step-4">Run /begin</a></li>
+      <li><a href="#step-5">Schedule meeting-sync daily</a></li>
+      <li><a href="#step-6">Install the Visualizer</a></li>
+      <li><a href="#step-7">Connect folders in the Visualizer</a></li>
+      <li><a href="#commands">Commands reference</a></li>
+      <li><a href="#skills">Skills reference</a></li>
+      <li><a href="#workspace">Workspace layout</a></li>
+      <li><a href="#daily">Daily usage</a></li>
+    </ol>
+  </nav>
+
+  <!-- How it works -->
+  <section id="how-it-works">
+    <h2>How it works</h2>
+    <p class="section-sub">Two pieces work together. The <strong>Claude plugin</strong> gives Claude tools to read and write files in a folder on your computer. The <strong>Visualizer</strong> is a Windows Electron app that reads the same folder and shows your work as a card grid and calendar. The plugin defines the folder shape both pieces expect.</p>
+
+    <div class="flow">
+      <div class="flow-node">
+        <strong>Claude (chat)</strong>
+        <span>Plugin installed; reads and writes files in your CoworkOS folder directly</span>
+      </div>
+      <div class="flow-node">
+        <strong>Folders on disk</strong>
+        <span>Personal Workspace/ with Projects/, Meetings/, etc. The folders ARE the data.</span>
+      </div>
+      <div class="flow-node">
+        <strong>Visualizer</strong>
+        <span>Windows Electron app. Reads the same folders. Renders them as cards and a calendar.</span>
+      </div>
+    </div>
+
+    <p class="section-sub">There is no database, no cloud sync, nothing magical — just markdown files in folders. You can edit them in VS Code, the Visualizer UI, or by talking to Claude. All three see the same data instantly.</p>
+
+    <div class="note">
+      <strong>No localhost, no API.</strong> The Visualizer is a single-process Electron app. There is no URL to visit, no localhost server, no API for Claude to call. Claude and the Visualizer don't talk to each other — they both read the same folders. The Visualizer's file watcher picks up Claude's writes within about 200 ms.
+    </div>
+  </section>
+
+  <!-- STEP 1 -->
+  <section id="step-1">
+    <h2><span class="num">Step 1</span>Create your CoworkOS folder</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Pick a location and create the folder</h3>
+          <p>This is the parent folder Claude will read and write to. Everything the plugin creates goes inside it. Put it somewhere you can find quickly — somewhere that also backs up.</p>
+          <p><strong>Recommended location:</strong></p>
+          <pre><code>C:\Users\[your-username]\OneDrive\Desktop\CoworkOS</code></pre>
+          <p>Other options that work fine:</p>
+          <ul>
+            <li><code>C:\Users\[you]\OneDrive\Documents\CoworkOS</code></li>
+            <li><code>C:\Users\[you]\Documents\CoworkOS</code> (local only, no cloud backup)</li>
+          </ul>
+          <div class="note">
+            <strong>OneDrive note.</strong> If CoworkOS is in OneDrive, the first time the Visualizer reads each file there may be a 1–2 second hydration pause while OneDrive pulls the file local. After that it's fast.
+          </div>
+          <p>Don't put CoworkOS inside another sync app's root (Dropbox, Box, Google Drive). Pick one cloud backup, stick with it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section id="step-2">
+    <h2><span class="num">Step 2</span>Add it to Claude as a favorite</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Mount the folder so Claude can see it</h3>
+          <p>Claude Code needs to know where your CoworkOS folder is so it can read and write files there.</p>
+          <ol>
+            <li>Open Claude Code (desktop app or web).</li>
+            <li>In the workspace or folder selector, click <strong>Add a folder</strong>.</li>
+            <li>Browse to your <code>CoworkOS</code> folder and select it.</li>
+            <li>Click the <strong>star</strong> (Favorite) so Claude Code remembers it across sessions.</li>
+          </ol>
+          <p>Claude should now have read/write access to everything inside CoworkOS.</p>
+          <div class="note">
+            <strong>Quick test.</strong> Type <code>list the files in my workspace</code>. Claude should be able to look inside CoworkOS even though it's empty right now.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section id="step-3">
+    <h2><span class="num">Step 3</span>Install the plugin</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Choose your plugin and install it from the marketplace</h3>
+          <p>The CoWork OS marketplace lives on GitHub at <a href="https://github.com/will-aadland/COWORK-OS" target="_blank" rel="noopener">will-aadland/cowork-os</a>. You add the marketplace once, then install whichever plugin fits your role. Both plugins require the <strong>Microsoft 365 Plus</strong> connector for meeting sync and SharePoint search.</p>
+
+          <h4 style="margin-top: 24px;">Step 3a — Pick your plugin</h4>
+
+          <div class="plugin-option">
+            <h4><span class="method-tag">For everyone</span> promega-workspace</h4>
+            <p>Works for any Promega employee — scientists, lab technicians, QA, manufacturing, operations, sales, HR, IT, management. Generic workspace setup with Projects, Meetings, and any custom workspaces you want. Meeting sync, SharePoint search, save-note, save-summary.</p>
+          </div>
+
+          <div class="plugin-option">
+            <h4><span class="method-tag alt">For engineers</span> promega-workspace-engineering</h4>
+            <p>Everything in the general plugin plus engineering-specific defaults: Change Controls, DS Revisions, and Commissioning workspace options; ISA-88 / FactoryTalk Batch reference skill; engineering SharePoint areas pre-configured.</p>
+          </div>
+
+          <div class="note">
+            <strong>Not sure which one?</strong> If you're a process engineer, automation engineer, or work on PLCs and batch systems, use the engineering plugin. Everyone else, use the general one. You can switch later without losing any workspace data.
+          </div>
+
+          <h4 style="margin-top: 32px;">Step 3b — Install from the marketplace</h4>
+          <ol>
+            <li>Open Claude Code. Click <strong>Customize</strong>.</li>
+            <li>Next to <strong>Personal plugins</strong>, click the <strong>+</strong>.</li>
+            <li>Click <strong>Add a marketplace</strong>.</li>
+            <li>Paste the marketplace URL:
+              <pre><code>will-aadland/cowork-os</code></pre>
+            </li>
+            <li>Confirm. Claude Code loads the marketplace.</li>
+            <li>Expand <code>cowork-os</code>. Click your plugin from Step 3a.</li>
+            <li>Click <strong>Install</strong>. Restart Claude Code if prompted.</li>
+          </ol>
+          <p><strong>Verify.</strong> Type <code>/</code> in chat. You should see <code>/begin</code>, <code>/add-project</code>, <code>/add-workspace</code>, <code>/save-summary</code>, <code>/save-note</code>.</p>
+
+          <h4 style="margin-top: 32px;">Step 3c — Connect Microsoft 365 Plus</h4>
+          <p>Both plugins use the <strong>Microsoft 365 Plus</strong> connector for Outlook calendar sync, transcript pull, and SharePoint search.</p>
+          <ol>
+            <li>Open Claude Code → <strong>Customize → Connectors</strong>.</li>
+            <li>Find <strong>Microsoft 365 Plus</strong> (also listed as Microsoft 365 Open Beta).</li>
+            <li>Click <strong>Connect</strong> and sign in with your Promega Microsoft account.</li>
+          </ol>
+          <div class="note">
+            <strong>You don't need to do this before /begin.</strong> The connector is only needed for meeting sync and SharePoint search. You can connect it after running <code>/begin</code>. If Claude prompts you to connect it during a sync, just follow the prompt in the chat.
+          </div>
+
+          <h4 style="margin-top: 32px;">Update later</h4>
+          <ol>
+            <li>Go to <strong>Customize → Personal plugins → cowork-os → your plugin</strong>.</li>
+            <li>Click <strong>Update</strong>. Restart if prompted.</li>
+          </ol>
+          <p>If no update shows, hit the marketplace <strong>Refresh</strong> control first.</p>
+
+          <h4 style="margin-top: 32px;">If the marketplace install fails</h4>
+          <p>If you see <em>"Cannot reach marketplace"</em>, <em>"Network error"</em>, or similar, Claude Code can't reach GitHub — usually a firewall or VPN issue. Install from a local copy instead.</p>
+
+          <div class="workaround">
+            <h4>Install from a local clone</h4>
+            <ol>
+              <li><strong>Get the repo.</strong> Either:
+                <ul>
+                  <li><code>git clone https://github.com/will-aadland/COWORK-OS.git</code>, or</li>
+                  <li>On GitHub, click <strong>Code → Download ZIP</strong> and extract it (e.g. to <code>%USERPROFILE%\Documents\COWORK-OS\</code>).</li>
+                </ul>
+              </li>
+              <li><strong>Open Claude Code's local plugins folder:</strong>
+                <pre><code>%USERPROFILE%\.local-plugins\marketplaces\local-desktop-app-uploads\</code></pre>
+                <p style="font-size: 13px; color: var(--ink-2); margin: 6px 0 0;">Create the folders if they don't exist.</p>
+              </li>
+              <li><strong>Copy your plugin folder in.</strong> From the cloned repo, copy either <code>promega-workspace\</code> or <code>promega-workspace-engineering\</code> into <code>local-desktop-app-uploads\</code>. The final layout:
+                <pre><code>%USERPROFILE%\.local-plugins\
+└── marketplaces\
+    └── local-desktop-app-uploads\
+        └── promega-workspace\          (or promega-workspace-engineering\)
+            ├── .claude-plugin\plugin.json
+            ├── commands\
+            └── skills\</code></pre>
+              </li>
+              <li><strong>Fully quit Claude Code</strong> (system tray → Quit) and re-open.</li>
+              <li><strong>Verify.</strong> Type <code>/</code>. You should see <code>/begin</code>.</li>
+            </ol>
+          </div>
+
+          <h4>Troubleshooting</h4>
+          <ul>
+            <li><strong>Marketplace not found.</strong> Check spelling: <code>will-aadland/cowork-os</code> (lowercase, hyphen). Still failing? Use the local install workaround.</li>
+            <li><strong>No commands appear after install.</strong> Restart Claude Code. Then check <strong>Customize → Personal plugins</strong> — if your plugin isn't listed, the install didn't take.</li>
+            <li><strong>Microsoft 365 Plus not appearing in Connectors.</strong> It may be listed as "Microsoft 365 Open Beta." If it's not there at all, check that your Claude plan includes connector access.</li>
+            <li><strong>Both plugins installed by mistake.</strong> Go to <strong>Customize → Personal plugins</strong> and uninstall the one you don't want. Running both duplicates the slash menu.</li>
+          </ul>
+
+          <div class="warn">
+            <strong>Install only one plugin.</strong> <code>promega-workspace</code> and <code>promega-workspace-engineering</code> have overlapping commands and trigger phrases. Installing both causes duplicate completions and unpredictable routing. Pick the one that fits your role.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section id="step-4">
+    <h2><span class="num">Step 4</span>Run /begin</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>One-time workspace setup (about 5 minutes)</h3>
+          <p>Type <code>/begin</code> in Claude. The plugin walks you through how the system works, asks one question, builds your Personal Workspace, and gives you a Personal Preferences block to paste into Claude Settings.</p>
+
+          <p><strong>What happens during /begin:</strong></p>
+          <ul>
+            <li><strong>System orientation.</strong> Claude explains how CoWork works, what a workspace is, and why having more in here makes Claude more useful over time.</li>
+            <li><strong>One question.</strong> Your name, role, and any workspaces you want beyond Projects and Meetings. That's it — no interview.</li>
+            <li><strong>Your CoWork folder path.</strong> Claude asks for the path you created in Step 1.</li>
+            <li><strong>Scaffold.</strong> Creates <code>Personal Workspace/</code> with all your workspaces.</li>
+            <li><strong>Folder tour.</strong> Claude briefly explains what was built and tells you to pin CoworkOS to Quick Access in Windows Explorer.</li>
+            <li><strong>Personal Preferences block.</strong> A comprehensive block to paste into Claude Settings so Claude always knows about your workspace — in every conversation, automatically.</li>
+            <li><strong>Meeting sync setup.</strong> Claude walks you through scheduling meeting-sync as a daily task (covered in depth in Step 5).</li>
+          </ul>
+
+          <p>After <code>/begin</code>, your folder structure looks like this:</p>
+          <pre class="tree"><span class="root">CoworkOS\</span>
+└── <span class="root">Personal Workspace\</span>
+    ├── <span class="meta">CLAUDE.md              # workspace context and mount paths — Claude reads this first</span>
+    ├── <span class="mount">Projects\</span>
+    │   └── <span class="meta">Completed\</span>
+    ├── <span class="mount">Meetings\</span>
+    ├── <span class="mount">Notes\</span>               <span class="meta"># workspace-level notes</span>
+    ├── <span class="mount">[Your workspace]\</span>   <span class="meta"># e.g. Change Controls\, Experiments\, Protocols\</span>
+    │   └── <span class="meta">Completed\</span>
+    └── <span class="mount">...</span></pre>
+
+          <p><strong>The Personal Preferences block.</strong> Paste the block Claude generates into <strong>Claude Settings → Personal Preferences</strong> (or Custom Instructions, depending on your interface). This is what makes Claude workspace-aware in every conversation — it won't ask where things are or forget about your workspace. The block covers your workspace path, all your workspaces, routing rules, available commands, and behavior rules.</p>
+
+          <div class="note">
+            <strong>/begin is run once.</strong> If you need to add a workspace later, use <code>/add-workspace</code>. If you want to regenerate your Personal Preferences block (e.g., after adding new workspaces), just ask Claude: <em>"Regenerate my Personal Preferences block."</em>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section id="step-5">
+    <h2><span class="num">Step 5</span>Schedule meeting-sync daily</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Set meeting-sync to run automatically each morning</h3>
+          <p>The <code>meeting-sync</code> skill pulls your Outlook calendar into the <code>Meetings\</code> workspace. Running it daily keeps everything current without you thinking about it.</p>
+
+          <p><strong>Set it up in Claude Code Settings → Scheduled Tasks:</strong></p>
+          <ol>
+            <li>In Claude Code, open <strong>Settings</strong>.</li>
+            <li>Go to <strong>Scheduled Tasks</strong> (or Background Tasks, depending on your version).</li>
+            <li>Add a new task:
+              <ul>
+                <li><strong>Command:</strong> <code>/meeting-sync</code></li>
+                <li><strong>Schedule:</strong> Daily, weekdays — 7:00 AM recommended</li>
+                <li><strong>Model:</strong> Sonnet (handles calendar parsing and transcript summarization efficiently)</li>
+              </ul>
+            </li>
+            <li>Save the task.</li>
+          </ol>
+
+          <p>Or just say it in plain language and Claude will set it up:</p>
+          <pre><code>Schedule meeting-sync to run every weekday at 7am using Sonnet</code></pre>
+
+          <p><strong>What it does every morning:</strong></p>
+          <ul>
+            <li>Pulls Outlook events for this workweek and next workweek (Mon–Fri, two weeks).</li>
+            <li>Creates or updates a folder for each meeting using the <code>YYYY-MM-DD — Title</code> naming convention.</li>
+            <li>Writes the agenda, attendees, date, time, and location into each meeting's <code>CLAUDE.md</code>.</li>
+            <li>Automatically pulls and summarizes transcripts from yesterday's recorded Teams meetings.</li>
+            <li>Updates <code>Meetings\OOO.md</code> with any out-of-office time.</li>
+            <li>Quietly removes folders for cancelled meetings.</li>
+          </ul>
+
+          <p>You can also trigger it manually at any time by typing <em>sync my meetings</em> or <code>/meeting-sync</code>. Manual runs are interactive — Claude will ask before doing anything destructive.</p>
+
+          <div class="note">
+            <strong>Transcript access.</strong> Transcripts are available for Teams meetings you organized or were a presenter in. For meetings where you were just an attendee, transcript access depends on the organizer's settings. If a transcript isn't available, meeting-sync logs it and moves on — it won't fail the whole sync.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 6 -->
+  <section id="step-6">
+    <h2><span class="num">Step 6</span>Install the Visualizer</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h3>Run the Promega Project Planner installer</h3>
+          <p>The Visualizer is a self-contained Windows app distributed as a single <code>.exe</code> installer. It bundles everything it needs — you don't have to install Node, Electron, or anything else separately.</p>
+
+          <div class="note">
+            <strong>Windows will warn you twice. Both warnings are expected and safe to bypass.</strong> The installer isn't signed by a commercial certificate authority, so Windows flags it as "unknown publisher." It's the same file your teammates are using — it just doesn't carry a signature Microsoft recognizes. Details on what to do are in the steps below.
+          </div>
+
+          <ol>
+            <li><strong>Download the installer.</strong> Get it from the team distribution channel or the GitHub releases page:
+              <pre><code>Promega Project Planner Setup 3.0.4.exe   (~78 MB)</code></pre>
+            </li>
+
+            <li><strong>Warning #1 — the browser may block the download.</strong>
+              <p>Edge or Chrome may show a warning that the file <em>"isn't commonly downloaded"</em> or <em>"could harm your device."</em></p>
+              <ul>
+                <li><strong>Edge:</strong> Click <strong>···</strong> next to the blocked download → <strong>Keep</strong> → <strong>Keep anyway</strong>.</li>
+                <li><strong>Chrome:</strong> Click the <strong>^</strong> caret next to the blocked download → <strong>Keep</strong>.</li>
+              </ul>
+            </li>
+
+            <li><strong>Save to Downloads or Desktop.</strong></li>
+
+            <li><strong>Warning #2 — Windows SmartScreen ("Windows protected your PC").</strong>
+              <p>Double-clicking the <code>.exe</code> brings up a blue full-screen dialog:</p>
+              <pre style="background: #1e3a8a; color: white;">Windows protected your PC
+
+Microsoft Defender SmartScreen prevented an unrecognized
+app from starting. Running this app might put your PC at risk.
+
+[Don't run]</pre>
+              <p><strong>This is expected. Here's how to proceed:</strong></p>
+              <ol>
+                <li>Click the small <strong>More info</strong> link near the top of the blue dialog.</li>
+                <li>The dialog expands and shows the app name and <em>Unknown publisher</em>.</li>
+                <li>A <strong>Run anyway</strong> button appears. Click it.</li>
+              </ol>
+              <p style="font-size: 13px; color: var(--ink-2); margin: 8px 0 0;"><strong>Why this is safe:</strong> SmartScreen flags any executable that isn't signed by a recognized CA or widely distributed. Internal Promega tools fail both checks — same as any in-house app. It does not mean the file is malicious. If you want to double-check: verify the file size matches (~78 MB) or confirm with your team lead before running.</p>
+            </li>
+
+            <li><strong>The installer opens.</strong>
+              <ul>
+                <li>Default install path: <code>%LOCALAPPDATA%\Programs\Promega Project Planner</code></li>
+                <li>Check <strong>Create desktop shortcut</strong> and <strong>Create Start menu shortcut</strong>.</li>
+              </ul>
+            </li>
+
+            <li><strong>Click Install.</strong> Takes about 10 seconds.</li>
+            <li><strong>Launch from Start menu or desktop shortcut.</strong></li>
+          </ol>
+
+          <p>On first launch you'll see a config screen asking which folder to read. That's Step 7.</p>
+
+          <div class="note">
+            <strong>Updates.</strong> There's no auto-updater. When a new version ships, download the new <code>.exe</code> and run it over the existing install. Your data and config are preserved. You'll see the same two warnings again — same procedure each time.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 7 -->
+  <section id="step-7">
+    <h2><span class="num">Step 7</span>Connect folders in the Visualizer</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h3>Point the Visualizer at your Personal Workspace</h3>
+          <p>The Visualizer reads folders directly from disk. You point it at the <code>Personal Workspace\</code> folder that <code>/begin</code> created, and it auto-detects your workspaces.</p>
+
+          <ol>
+            <li><strong>Launch the Visualizer.</strong> The first-run config screen appears (or click the gear icon → <strong>Settings</strong> if you've been here before).</li>
+            <li><strong>Click "Choose folder."</strong> A Windows folder picker opens.</li>
+            <li><strong>Browse to your Personal Workspace:</strong>
+              <pre><code>C:\Users\[you]\OneDrive\Desktop\CoworkOS\Personal Workspace</code></pre>
+              <p>Select <code>Personal Workspace</code>, not <code>CoworkOS</code>. The Visualizer expects to be pointed at the folder that contains <code>Projects\</code>, <code>Meetings\</code>, etc.</p>
+            </li>
+            <li><strong>The Visualizer auto-detects your workspaces.</strong> It scans for the canonical layout and pre-fills the Settings panel with your workspace paths. You shouldn't need to add them by hand.</li>
+            <li><strong>Verify the workspace list</strong> in Settings. Confirm each workspace points at the right folder.</li>
+            <li><strong>Click Save.</strong> The Visualizer reloads against your workspace.</li>
+          </ol>
+
+          <p>You're all set. As soon as meeting-sync runs (or you add your first project), cards will appear.</p>
+
+          <div class="note">
+            <strong>Live reload.</strong> The Visualizer watches the folder tree. Any file Claude writes — a new note, a synced meeting, a saved summary — appears in the UI within about 200 ms. No refresh button needed.
+          </div>
+
+          <p><strong>The six tabs:</strong></p>
+          <ul>
+            <li><strong>Calendar.</strong> Month grid with project bars and meeting chips, colored by priority and title.</li>
+            <li><strong>All Projects.</strong> Filterable list grouped by status across all workspaces.</li>
+            <li><strong>All Meetings.</strong> Reverse-chronological. Today's meetings highlighted.</li>
+            <li><strong>Files.</strong> Sidebar tree plus main pane. Drag-drop, preview, edit.</li>
+            <li><strong>Summaries.</strong> Time-window summary builder for weekly and monthly digests.</li>
+            <li><strong>Settings.</strong> Workspace root, per-workspace paths, priority colors.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMMANDS -->
+  <section id="commands">
+    <h2>Commands reference</h2>
+    <p class="section-sub">Five slash commands. Type <code>/</code> in Claude to see the full list. Most also fire on natural language, but the slash form is the canonical entry point.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <span class="badge cmd">cmd</span>
+          <span class="card-name">/begin</span>
+        </div>
+        <p>One-time setup. Explains the system, asks your name, role, and what workspaces you want, then scaffolds <code>Personal Workspace\</code> and generates a comprehensive Personal Preferences block. Run once. No interview — just one question and go.</p>
+        <div class="triggers"><strong>When to run:</strong> Once, the first time you use the plugin.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge cmd">cmd</span>
+          <span class="card-name">/add-workspace</span>
+        </div>
+        <p>Adds a new top-level workspace folder (like <code>Experiments\</code> or <code>Protocols\</code>) to your Personal Workspace and registers it in your CLAUDE.md mounts list. For adding items <em>inside</em> a workspace, use <code>/add-project</code>.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "add a workspace", "create a workspace for [X]", "I need a workspace for [X]", "new workspace"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge cmd">cmd</span>
+          <span class="card-name">/add-project</span>
+        </div>
+        <p>Scaffolds a new item inside any workspace with the canonical schema (<code>CLAUDE.md</code> with metadata block, <code>Notes\</code>, <code>Chat Summaries\</code>, <code>Files\</code>). Asks for name, description, and which workspace. Does not create meetings — those come from <code>meeting-sync</code>.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "new project", "start a project", "add a CC", "new change control", "new folder for [X]", "track a new [X]"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge cmd">cmd</span>
+          <span class="card-name">/save-summary</span>
+        </div>
+        <p>Saves a summary of the current Claude conversation into the right project's <code>Chat Summaries\</code> folder and adds a pointer to <code>## Recent Summaries</code> in the project's <code>CLAUDE.md</code>. Call this when you've covered something worth keeping.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "save this chat to [project]", "summarize this conversation", "capture this for [project]"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge cmd">cmd</span>
+          <span class="card-name">/save-note</span>
+        </div>
+        <p>Saves a discrete note into the right project's <code>Notes\</code> folder. Captures your words verbatim when you're specific. When vague ("remember this"), asks what to save or pulls from the last few messages.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "save to notes on [X]", "note that...", "remember this", "log this", "make a note that...", "create session notes"</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SKILLS -->
+  <section id="skills">
+    <h2>Skills reference</h2>
+    <p class="section-sub">Skills fire automatically on natural-language phrases. You don't need to type a slash command — just say what you mean.</p>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <span class="badge skill">skill</span>
+          <span class="card-name">meeting-sync</span>
+        </div>
+        <p>Pulls Outlook calendar events into <code>Meetings\</code> for this workweek and next. Converts times to Central (America/Chicago). Each meeting gets a folder with title, date, attendees, agenda, and eventually a transcript summary. Skips cancelled, Hold, and OOO events (OOO goes to <code>OOO.md</code>). Pulls Teams transcripts and writes 300–600 word summaries into <code>## Transcript Summary</code>.</p>
+        <p><strong>Two modes:</strong> scheduled (runs silently, auto-pulls yesterday's transcripts) and interactive (asks before deleting cancelled folders, asks which transcripts to pull).</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "sync my meetings", "pull my calendar", "update my meetings", "sync my calendar", "update OOO"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge skill">skill</span>
+          <span class="card-name">save-note</span>
+        </div>
+        <p>Skill counterpart to the <code>/save-note</code> command. Same logic, fires on natural-language triggers without needing the slash prefix.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "save to notes", "note that...", "remember this", "don't forget", "log this", "make a note", "jot this down"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge skill">skill</span>
+          <span class="card-name">sharepoint-search</span>
+        </div>
+        <p>Three-tier knowledge search for Promega-specific questions. Always checks your Personal Workspace first, then Promega's SharePoint, then general knowledge. Cites sources. Never fabricates — if both workspace and SharePoint are empty for a Promega-specific question, it says so.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "search SharePoint", "where's the procedure", "look it up", "what's our process for", "find the form for", "check the knowledge base"</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="badge skill">skill</span>
+          <span class="card-name">isa88-guide</span>
+          <span class="badge eng">Engineering only</span>
+        </div>
+        <p>ISA-88 batch model reference tuned to Promega's FactoryTalk Batch / PhaseManager implementation. Covers the batch model hierarchy (Recipe / UP / OP / Phase / EM / CM), Phase state machine, CM tag naming, recipe types, and a worked FERMB P6 example. Includes the full reference document.</p>
+        <div class="triggers"><strong>Trigger phrases:</strong> "ISA-88", "S88", "batch model", "PhaseManager", "Equipment Module", "Phase state machine", "FactoryTalk Batch"</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WORKSPACE LAYOUT -->
+  <section id="workspace">
+    <h2>Workspace layout</h2>
+    <p class="section-sub">Inside <code>Personal Workspace\</code>, every item is a folder with a known shape. Claude reads and writes these files; the Visualizer renders them.</p>
+
+    <h3>Project items (any workspace)</h3>
+    <pre class="tree">[Item Name]\
+├── <span class="meta">CLAUDE.md              # title + description + ## Planner Metadata block</span>
+├── <span class="mount">Notes\</span>               <span class="meta"># human notes, one .md file per note</span>
+├── <span class="mount">Chat Summaries\</span>      <span class="meta"># Claude-generated summaries (/save-summary)</span>
+└── <span class="mount">Files\</span>               <span class="meta"># any attachments (docx, xlsx, pdf, screenshots)</span></pre>
+
+    <h3>Meeting items (Meetings\ workspace only)</h3>
+    <pre class="tree">YYYY-MM-DD — [Meeting Title]\    <span class="meta"># em-dash (U+2014), not a hyphen</span>
+├── <span class="meta">CLAUDE.md              # ## Planner Metadata + ## Meeting Details + ## Attendees + ## Agenda + ## Transcript Summary</span>
+├── <span class="mount">Notes\</span>               <span class="meta"># your meeting notes</span>
+├── <span class="mount">Files\</span>               <span class="meta"># attachments</span>
+└── <span class="mount">Transcripts\</span>         <span class="meta"># raw transcript file (transcript.md)</span></pre>
+
+    <div class="note">
+      <strong>Meetings do not have a Chat Summaries\ folder.</strong> Claude-generated meeting summaries go into the meeting's <code>## Transcript Summary</code> section in <code>CLAUDE.md</code> instead.
+    </div>
+
+    <h3>The CLAUDE.md metadata block</h3>
+    <p>Every project and meeting <code>CLAUDE.md</code> has a strict metadata section the Visualizer reads. Edit it carefully — always use the Edit tool, never a full rewrite, no blank lines inside the block:</p>
+    <pre><code># [Item Name]
+
+[Optional one-paragraph description.]
+
+## Planner Metadata
+status: on-track          # on-track | at-risk | behind | blocked | completed | on-hold
+priority: medium          # high | medium | low
+startDate: 2026-04-23
+endDate:   2026-05-15
+progress:  0              # 0 to 100
+stress:    0              # 0 to 5
+color:     #d46a35        # hex color for the Visualizer card
+isMeeting: true           # meetings only
+links:
+  - url: https://example.com
+    label: Display name</code></pre>
+
+    <p>Setting <code>status: completed</code> triggers the Visualizer's auto-archive into <code>[workspace]\Completed\</code>. Reverting status moves it back.</p>
+  </section>
+
+  <!-- DAILY USAGE -->
+  <section id="daily">
+    <h2>Daily usage</h2>
+    <p class="section-sub">Once everything is set up, your daily workflow looks like this.</p>
+
+    <div class="card">
+      <h3 style="margin-top: 0;">Morning</h3>
+      <ul>
+        <li>Scheduled <code>meeting-sync</code> ran at 7 AM. Today's and tomorrow's meetings are in <code>Meetings\</code>, already organized with attendees and agendas. Yesterday's recorded meetings have transcript summaries.</li>
+        <li>Launch the Visualizer from the Start menu or desktop shortcut. Glance at the calendar — see what's coming.</li>
+      </ul>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h3 style="margin-top: 0;">During work</h3>
+      <ul>
+        <li>Working through a problem in Claude? Say <em>"save this chat to [project]"</em> when you reach a decision or insight you want to keep (<code>/save-summary</code>).</li>
+        <li>Found something worth remembering? Say <em>"note that [finding]"</em> (<code>/save-note</code>).</li>
+        <li>Starting a new initiative? Say <em>"add a project for [name]"</em> (<code>/add-project</code>).</li>
+        <li>Need a new category of work? Say <em>"add a workspace for Protocols"</em> (<code>/add-workspace</code>).</li>
+        <li>Looking for a Promega procedure or form? Just ask. Claude searches your workspace first, then SharePoint, and tells you which tier the answer came from.</li>
+      </ul>
+    </div>
+
+    <div class="card" style="margin-top: 16px;">
+      <h3 style="margin-top: 0;">End of week</h3>
+      <ul>
+        <li>Open the Visualizer's <strong>Summaries</strong> tab.</li>
+        <li>Pick "This Week" or a custom date range and click <strong>Save Summary</strong>. A markdown file lands in your workspace.</li>
+        <li>Finished something? Set its <code>CLAUDE.md</code> to <code>status: completed</code> — the Visualizer auto-archives it to <code>Completed\</code>.</li>
+      </ul>
+    </div>
+
+    <div class="note" style="margin-top: 24px;">
+      <strong>The more you put in, the more useful Claude becomes.</strong> Context from past projects, meeting transcripts, saved notes — Claude finds all of it automatically when you ask a question. Every note and summary makes the next conversation smarter. The data is plain markdown on your disk — nothing locked in, nothing proprietary.
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <strong>Promega CoWork OS</strong> &nbsp;·&nbsp; Plugin v1.0.0 / v5.0.0 &nbsp;·&nbsp; Visualizer v3.0.4 &nbsp;·&nbsp; Author: Will Aadland
+</footer>
+
+</body>
+</html>

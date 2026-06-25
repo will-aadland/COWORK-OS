@@ -1,0 +1,17 @@
+node_modules/
+config.json
+tasks.json
+ui-state.json
+*.log
+.DS_Store
+desktop.ini
+
+# Build output — use GitHub Releases for distributables
+dist-app/
+
+# Local Claude AI context
+.claude/
+
+# Personal/workspace content
+_archive/
+bin/*.exe
