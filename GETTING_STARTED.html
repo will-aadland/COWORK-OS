@@ -779,7 +779,7 @@ app from starting. Running this app might put your PC at risk.
             <li><strong>Launch from Start menu or desktop shortcut.</strong></li>
           </ol>
 
-          <p>On first launch you'll see a config screen asking which folder to read. That's Step 7.</p>
+          <p>On first launch you'll see a blank calendar. Step 7 walks you through connecting it to your workspace.</p>
 
           <div class="note">
             <strong>Updates.</strong> There's no auto-updater. When a new version ships, download the new <code>.exe</code> and run it over the existing install. Your data and config are preserved. You'll see the same two warnings again — same procedure each time.
@@ -796,20 +796,30 @@ app from starting. Running this app might put your PC at risk.
       <div class="step">
         <div class="step-num">7</div>
         <div class="step-body">
-          <h3>Point the Visualizer at your Personal Workspace</h3>
-          <p>The Visualizer reads folders directly from disk. You point it at the <code>Personal Workspace\</code> folder that <code>/begin</code> created, and it auto-detects your workspaces.</p>
+          <h3>Connect the Visualizer to your Personal Workspace</h3>
+          <p>The Visualizer reads folders directly from disk. You configure it once by pointing each section at the right folder.</p>
 
           <ol>
-            <li><strong>Launch the Visualizer.</strong> The first-run config screen appears (or click the gear icon → <strong>Settings</strong> if you've been here before).</li>
-            <li><strong>Click "Choose folder."</strong> A Windows folder picker opens.</li>
-            <li><strong>Browse to your Personal Workspace:</strong>
-              <pre><code>C:\Users\[you]\OneDrive\Desktop\CoworkOS\Personal Workspace</code></pre>
-              <p>Select <code>Personal Workspace</code>, not <code>CoworkOS</code>. The Visualizer expects to be pointed at the folder that contains <code>Projects\</code>, <code>Meetings\</code>, etc.</p>
+            <li><strong>Launch the Visualizer.</strong> A blank calendar appears — that's expected.</li>
+            <li><strong>Click the ⚙ Settings gear icon</strong> in the top-right header.</li>
+            <li><strong>Under "Section Folders," configure each path:</strong>
+              <ul style="margin-top:8px;">
+                <li><strong>Meetings Folder</strong> → click the 📁 browse button → navigate to <code>CoworkOS\Personal Workspace\Meetings\</code></li>
+                <li><strong>Files Root</strong> → browse to <code>CoworkOS\Personal Workspace\</code></li>
+                <li><strong>Project folders</strong> → click "Add Mount" for each workspace that holds projects. Add them one at a time:
+                  <pre><code>CoworkOS\Personal Workspace\Projects\
+CoworkOS\Personal Workspace\Change Controls\   (if you have one)
+CoworkOS\Personal Workspace\[Other workspace]\  (repeat for each)</code></pre>
+                </li>
+              </ul>
             </li>
-            <li><strong>The Visualizer auto-detects your workspaces.</strong> It scans for the canonical layout and pre-fills the Settings panel with your workspace paths. You shouldn't need to add them by hand.</li>
-            <li><strong>Verify the workspace list</strong> in Settings. Confirm each workspace points at the right folder.</li>
-            <li><strong>Click Save.</strong> The Visualizer reloads against your workspace.</li>
+            <li><strong>Each path saves automatically</strong> when you pick it — no Save button needed. The project list updates immediately.</li>
+            <li><strong>Close Settings.</strong> Your workspaces appear in the calendar and project list.</li>
           </ol>
+
+          <div class="note">
+            <strong>Which workspaces to add as project mounts?</strong> Add any top-level workspace folder that contains project items — that is, any folder whose subfolders each have a <code>Completed\</code> subfolder inside them. Meetings go in the Meetings field, not as a project mount.
+          </div>
 
           <p>You're all set. As soon as meeting-sync runs (or you add your first project), cards will appear.</p>
 
