@@ -54,18 +54,18 @@ jobs:
 
             ### First run
 
-            On first launch the app will ask you to point it at your CoWork workspace folder (the folder Claude writes to). Pick the same path you configured in `/begin`.
+            On first launch you'll see a blank calendar. Click the ⚙ Settings gear icon → under **Section Folders**, add your Meetings folder and each project workspace mount. See `GETTING_STARTED.html` (included below) for the full walkthrough.
 
             ### What's in this release
 
             | File | Purpose |
             |------|---------|
             | `Promega.Project.Planner.Setup.${{ steps.pkg.outputs.version }}.exe` | Windows NSIS installer (~78 MB, self-contained) |
+            | `GETTING_STARTED.html` | Full setup guide — open in any browser before installing |
             | `*.blockmap` | Differential update map (can be ignored for manual installs) |
-
-            See [GETTING_STARTED.html](https://github.com/will-aadland/COWORK-OS/blob/main/GETTING_STARTED.html) for the full setup guide.
           files: |
             visualizer/dist-app/*.exe
             visualizer/dist-app/*.blockmap
+            GETTING_STARTED.html
           draft: false
           prerelease: false
