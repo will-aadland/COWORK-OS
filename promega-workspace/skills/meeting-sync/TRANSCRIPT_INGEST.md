@@ -180,7 +180,45 @@ The summary goes in the meeting's `## Transcript Summary` section (T7), not a se
 
 ### T7. Write the summary into `CLAUDE.md`
 
-Edit the meeting's `CLAUDE.md` to replace only the `## Transcript Summary` section body. Use Edit (not Write). Replace content between `## Transcript Summary` and the next heading (or EOF). Never touch other sections.
+Use Edit (not Write) to replace the `## Transcript Summary` section with the generated summary. Including the heading in both `old_string` and `new_string` makes the match unambiguous and avoids partial-match failures.
+
+**Construct the Edit call as follows:**
+
+`old_string` — the heading line plus everything currently in the section body. For a fresh scaffold this is:
+```
+## Transcript Summary
+
+(no transcript yet)
+```
+If the section already has content (overwrite case cleared by T1), read the file first and capture the exact text from `## Transcript Summary` through the next `##`-level heading or EOF, whichever comes first. Use that exact text as `old_string`.
+
+`new_string` — the heading line, a blank line, then the summary body from T6:
+```
+## Transcript Summary
+
+### Key Topics Discussed
+- …
+
+### Decisions Made
+- …
+
+### Action Items
+- [ ] …
+
+### Attendee Contributions
+**Name (role):** …
+
+### Key Quotes
+> "…" — Speaker
+
+### Follow-ups / Open Questions
+- …
+```
+Omit any `###` subsection that has no content rather than leaving it empty. Always keep a blank line between `## Transcript Summary` and the first `###` subsection.
+
+If the Edit call fails (whitespace difference, placeholder text differs), read the meeting's `CLAUDE.md` again, extract the exact bytes from `## Transcript Summary` to the next `##` heading or EOF, and retry with that as `old_string`.
+
+Never touch `## Meeting Details`, `## Attendees`, `## Agenda`, `## Planner Metadata`, or any custom engineer-added sections.
 
 ### T8. Optional: surface action items as notes
 
